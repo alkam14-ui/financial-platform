@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-
-function ExamsManager({ teacherName, schoolName, directorateName, currentGradeName, allSemesterLessons }) {
+function ExamsManager({ teacherName, schoolName, directorateName, currentGradeName, allSemesterLessons, onBackToDashboard }) {
   const [activeExamType, setActiveExamType] = useState('first'); 
   const [startLesson, setStartLesson] = useState('g7_s1_u1_l1');
   const [endLesson, setEndLesson] = useState('g7_s1_u1_l4');
@@ -41,8 +40,13 @@ function ExamsManager({ teacherName, schoolName, directorateName, currentGradeNa
     <div style={{ fontFamily: 'Cairo, sans-serif' }} id="printable-exam-sheet-container">
       
       <div className="no-print" style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '2px solid #0369a1', marginBottom: '24px' }}>
-        <h4 style={{ fontSize: '22px', color: '#0369a1', margin: '0 0 16px 0', textAlign: 'center' }}>🎯 مركز التقييم والقياس وصياغة الامتحانات الذكية</h4>
-        
+<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+  <button onClick={onBackToDashboard} style={{ backgroundColor: '#ffffff', color: '#0284c7', border: '2px solid #0284c7', padding: '8px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: 'Cairo' }}>
+    🔙 العودة للوحة التحكم الرئيسية
+  </button>
+  <h4 style={{ fontSize: '22px', color: '#0369a1', margin: '0', textAlign: 'center', flex: 1 }}>🎯 مركز التقييم والقياس وصياغة الامتحانات الذكية</h4>
+  <div style={{ width: '160px' }}></div>
+</div>        
         <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px' }}>
           <button onClick={() => { setActiveExamType('first'); setShowGeneratedExamPaper(false); }} style={{ padding: '8px 16px', borderRadius: '8px', border: 0, cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', backgroundColor: activeExamType === 'first' ? '#0284c7' : '#e0f2fe', color: activeExamType === 'first' ? '#fff' : '#0369a1' }}>📝 التقويم الأول</button>
           <button onClick={() => { setActiveExamType('second'); setShowGeneratedExamPaper(false); }} style={{ padding: '8px 16px', borderRadius: '8px', border: 0, cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', backgroundColor: activeExamType === 'second' ? '#0284c7' : '#e0f2fe', color: activeExamType === 'second' ? '#fff' : '#0369a1' }}>📝 التقويم الثاني</button>
