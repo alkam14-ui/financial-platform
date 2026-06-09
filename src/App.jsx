@@ -5,12 +5,20 @@ import lessonDataL1 from './data/curriculum_g7_s1.json';
 import Navbar from './components/Navbar.jsx';
 import LessonView from './pages/LessonView.jsx';
 import ExamsManager from './pages/ExamsManager.jsx';
+// استدعاء شاشة إدارة الطلاب الجديدة
+import StudentsManager from './pages/StudentsManager.jsx';
 
 function App() {
-  const [navigationPage, setNavigationPage] = useState('registration');
-  const [teacherName, setTeacherName] = useState('');
-  const [schoolName, setSchoolName] = useState('');
-  const [directorateName, setDirectorateName] = useState('');
+  const [teacherName, setTeacherName] = useState(() => localStorage.getItem('teacherName') || '');
+  const [schoolName, setSchoolName] = useState(() => localStorage.getItem('schoolName') || '');
+  const [directorateName, setDirectorateName] = useState(() => localStorage.getItem('directorateName') || '');
+
+  const [navigationPage, setNavigationPage] = useState(() => {
+    if (localStorage.getItem('teacherName') && localStorage.getItem('schoolName')) {
+      return 'dashboard';
+    }
+    return 'registration';
+  });
 
   const [selectedGrade, setSelectedGrade] = useState('g7');
   const [selectedSemester, setSelectedSemester] = useState('s1');
@@ -61,6 +69,7 @@ function App() {
           context: "سيتم إضافة محتوى هذا القسم قريباً.",
           types: []
         },
+        classroom_activities: [],
         assessment_questions: [
           { id: "q1", question_text: "سيتم إضافة أسئلة التقييم قريباً." }
         ],
@@ -74,11 +83,18 @@ function App() {
   const handleRegistrationSubmit = (e) => {
     e.preventDefault();
     if (teacherName && schoolName && directorateName) {
+      localStorage.setItem('teacherName', teacherName);
+      localStorage.setItem('schoolName', schoolName);
+      localStorage.setItem('directorateName', directorateName);
       setNavigationPage('dashboard');
     }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('teacherName');
+    localStorage.removeItem('schoolName');
+    localStorage.removeItem('directorateName');
+    
     setTeacherName('');
     setSchoolName('');
     setDirectorateName('');
@@ -120,91 +136,68 @@ function App() {
         <>
           <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
           <div style={{ flex: 1, padding: '3rem 2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box', fontFamily: 'Cairo, sans-serif' }}>
-
             <div style={{ textAlign: 'center', marginBottom: '40px' }}>
               <h2 style={{ fontSize: '34px', color: '#0369a1', margin: '0', fontWeight: '900' }}>مرحباً بك، أستاذ {teacherName}</h2>
               <p style={{ fontSize: '16px', color: '#64748b', margin: '8px 0 0 0' }}>يرجى اختيار القسم المطلوب لبدء الحصة التفاعلية:</p>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px' }}>
-
-              {/* بطاقة الدروس مع خيارات الاختيار */}
+            
+            {/* Grid Box */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
+              
+              {/* بطاقة الدروس */}
               <div style={{ backgroundColor: '#ffffff', border: '2px solid #bae6fd', padding: '32px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px', borderBottom: '2px solid #f0f9ff', paddingBottom: '12px' }}>
                   <span style={{ fontSize: '32px' }}>📚</span>
                   <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>منصة الدروس والأنشطة</h3>
                 </div>
-
-                <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>
-                  اختر الدرس المطلوب وابدأ الحصة التفاعلية مباشرة.
-                </p>
-
-                {/* خيارات الاختيار */}
+                <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>اختر الدرس المطلوب وابدأ الحصة التفاعلية مباشرة.</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f0f9ff', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd' }}>
-
                   <div>
                     <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '6px' }}>🎓 الصف الدراسي:</label>
                     <select value={selectedGrade} onChange={(e) => setSelectedGrade(e.target.value)}>
-                      {curriculumIndex.grades.map(g => (
-                        <option key={g.grade_id} value={g.grade_id}>{g.grade_name}</option>
-                      ))}
+                      {curriculumIndex.grades.map(g => <option key={g.grade_id} value={g.grade_id}>{g.grade_name}</option>)}
                     </select>
                   </div>
-
                   <div>
                     <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '6px' }}>📅 الفصل الدراسي:</label>
                     <select value={selectedSemester} onChange={(e) => setSelectedSemester(e.target.value)}>
-                      {curriculumIndex.grades.find(g => g.grade_id === selectedGrade)?.semesters.map(s => (
-                        <option key={s.semester_id} value={s.semester_id}>{s.semester_name}</option>
-                      ))}
+                      {curriculumIndex.grades.find(g => g.grade_id === selectedGrade)?.semesters.map(s => <option key={s.semester_id} value={s.semester_id}>{s.semester_name}</option>)}
                     </select>
                   </div>
-
                   <div>
                     <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '6px' }}>📦 الوحدة:</label>
                     <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value)}>
-                      {currentUnitsList.map(u => (
-                        <option key={u.unit_id} value={u.unit_id}>{u.unit_title}</option>
-                      ))}
+                      {currentUnitsList.map(u => <option key={u.unit_id} value={u.unit_id}>{u.unit_title}</option>)}
                     </select>
                   </div>
-
                   <div>
                     <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '6px' }}>📖 الدرس:</label>
                     <select value={selectedLesson} onChange={(e) => setSelectedLesson(e.target.value)}>
-                      {currentLessonsList.map(l => (
-                        <option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>
-                      ))}
+                      {currentLessonsList.map(l => <option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>)}
                     </select>
                   </div>
-
                 </div>
-
-                <button
-                  onClick={() => {
-                    const lesson = currentLessonsList.find(l => l.lesson_id === selectedLesson);
-                    if (lesson) handleSelectLesson(lesson);
-                    setNavigationPage('lessons_page');
-                  }}
-                  style={{ backgroundColor: '#0284c7', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo' }}>
-                  🚀 ابدأ الدرس الآن
-                </button>
+                <button onClick={() => { const lesson = currentLessonsList.find(l => l.lesson_id === selectedLesson); if (lesson) handleSelectLesson(lesson); setNavigationPage('lessons_page'); }} style={{ backgroundColor: '#0284c7', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo' }}>🚀 ابدأ الدرس الآن</button>
               </div>
 
               {/* بطاقة الامتحانات */}
-              <div style={{ backgroundColor: '#ffffff', border: '2px solid #bae6fd', padding: '32px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ backgroundColor: '#ffffff', border: '2px solid #bae6fd', padding: '32px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'flex-start' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px', borderBottom: '2px solid #f0f9ff', paddingBottom: '12px' }}>
                   <span style={{ fontSize: '32px' }}>📝</span>
-                  <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>إعداد الامتحانات والاختبارات</h3>
+                  <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>إعداد الامتحانات</h3>
                 </div>
-                <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>
-                  بناء وتوليد اختبارات التقويم الأول والثاني والنهائي بشكل دقيق، وتوزيع حقول العلامات والفقرات بالتساوي، مع طباعة الأوراق الرسمية فوراً.
-                </p>
-                <button
-                  onClick={() => setNavigationPage('exams_page')}
-                  style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', marginTop: 'auto', fontFamily: 'Cairo' }}>
-                  🚪 دخول لصفحة بناء وضبط الامتحانات
-                </button>
+                <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>بناء وتوليد اختبارات التقويم الأول والثاني والنهائي بشكل دقيق، وتوزيع حقول العلامات والفقرات بالتساوي، مع طباعة الأوراق الرسمية فوراً.</p>
+                <button onClick={() => setNavigationPage('exams_page')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: 'auto' }}>دخول</button>
+              </div>
+
+              {/* بطاقة إدارة الطلاب */}
+              <div style={{ backgroundColor: '#ffffff', border: '2px solid #bae6fd', padding: '32px', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'flex-start' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', borderBottom: '2px solid #f0f9ff', paddingBottom: '12px' }}>
+                  <span style={{ fontSize: '32px' }}>👥</span>
+                  <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>إدارة الطلاب</h3>
+                </div>
+                <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>رفع قوائم أسماء الطلاب عبر ملفات Excel لربطها ببنك التقييم التكويني والمشاركة الصفية.</p>
+                <button onClick={() => setNavigationPage('students_manager')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: 'auto' }}>دخول</button>
               </div>
 
             </div>
@@ -212,25 +205,17 @@ function App() {
         </>
       )}
 
-      {/* شاشة محتوى الدرس - بدون Sidebar */}
+      {/* شاشة محتوى الدرس */}
       {navigationPage === 'lessons_page' && (
         <>
           <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
           <main style={{ flex: 1, padding: '2rem', overflowY: 'auto', boxSizing: 'border-box', maxWidth: '1100px', margin: '0 auto', width: '100%' }}>
             {activeLessonData ? (
-              <LessonView
-                lessonData={activeLessonData}
-                teacherName={teacherName}
-                onBackToDashboard={() => setNavigationPage('dashboard')}
-              />
+              <LessonView lessonData={activeLessonData} teacherName={teacherName} onBackToDashboard={() => setNavigationPage('dashboard')} />
             ) : (
               <div style={{ backgroundColor: '#ffffff', padding: '48px', borderRadius: '24px', textAlign: 'center', fontFamily: 'Cairo' }}>
                 <h3>يرجى العودة واختيار درس من لوحة التحكم</h3>
-                <button
-                  onClick={() => setNavigationPage('dashboard')}
-                  style={{ backgroundColor: '#0284c7', color: '#fff', border: 0, padding: '12px 24px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', marginTop: '16px' }}>
-                  🔙 العودة للوحة التحكم
-                </button>
+                <button onClick={() => setNavigationPage('dashboard')} style={{ backgroundColor: '#0284c7', color: '#fff', border: 0, padding: '12px 24px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', marginTop: '16px' }}>🔙 العودة للوحة التحكم</button>
               </div>
             )}
           </main>
@@ -244,14 +229,19 @@ function App() {
             <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
           </div>
           <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-            <ExamsManager
-              teacherName={teacherName}
-              schoolName={schoolName}
-              directorateName={directorateName}
-              currentGradeName={currentGradeObj?.grade_name || "الصف السابع الأساسي"}
-              allSemesterLessons={allSemesterLessons}
-              onBackToDashboard={() => setNavigationPage('dashboard')}
-            />
+            <ExamsManager teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} currentGradeName={currentGradeObj?.grade_name || "الصف السابع الأساسي"} allSemesterLessons={allSemesterLessons} onBackToDashboard={() => setNavigationPage('dashboard')} />
+          </div>
+        </>
+      )}
+
+      {/* شاشة إدارة الطلاب */}
+      {navigationPage === 'students_manager' && (
+        <>
+          <div className="no-print">
+            <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
+          </div>
+          <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+            <StudentsManager onBackToDashboard={() => setNavigationPage('dashboard')} />
           </div>
         </>
       )}

@@ -24,6 +24,13 @@ function LessonView({ lessonData, teacherName, onBackToDashboard }) {
   const [isPicking, setIsPicking] = useState(false);
   const [showPrepModel, setShowPrepModel] = useState(false);
 
+  // حالة للتحكم بظهور وإخفاء الإجابات النموذجية لكل سؤال بشكل مستقل
+  const [visibleAnswers, setVisibleAnswers] = useState({});
+
+  const toggleAnswer = (id) => {
+    setVisibleAnswers(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const [showShapesAct, setShowShapesAct] = useState(false);
   const [shapesActIndex, setShapesActIndex] = useState(0);
   const [showDistinctionAct, setShowDistinctionAct] = useState(false);
@@ -260,22 +267,99 @@ function LessonView({ lessonData, teacherName, onBackToDashboard }) {
               </div>
             )}
           </section>
+{/* قسم الأنشطة الصفية */}
+      {lessonData.classroom_activities && lessonData.classroom_activities.length > 0 && (
+        <div style={{ marginTop: '30px', backgroundColor: '#f0fdfa', padding: '24px', borderRadius: '16px', border: '2px solid #ccfbf1' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <span style={{ fontSize: '28px' }}>🛠️</span>
+            <h3 style={{ fontSize: '22px', color: '#0f766e', margin: '0', fontWeight: 'bold' }}>الأنشطة الصفية التفاعلية</h3>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {lessonData.classroom_activities.map((activity, index) => (
+              <div key={index} style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #99f6e4', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                <h4 style={{ fontSize: '18px', color: '#115e59', marginTop: '0', marginBottom: '12px', fontWeight: 'bold' }}>
+                  {activity.title}
+                </h4>
+                
+                {activity.allocated_time_minutes && (
+                  <div style={{ display: 'inline-block', backgroundColor: '#ccfbf1', color: '#0f766e', padding: '4px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', marginBottom: '12px' }}>
+                    ⏱️ الوقت المخصص: {activity.allocated_time_minutes} دقائق
+                  </div>
+                )}
+                
+                {activity.objective && (
+                  <p style={{ fontSize: '15px', color: '#334155', fontWeight: 'bold', marginBottom: '10px' }}>
+                    🎯 {activity.objective}
+                  </p>
+                )}
+                
+                {activity.tools && (
+                  <p style={{ fontSize: '14px', color: '#475569', marginBottom: '15px', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
+                    🧰 <span style={{ fontWeight: 'bold' }}>الأدوات:</span> {activity.tools.replace('الأدوات:', '')}
+                  </p>
+                )}
 
-          {/* أسئلة أقيم تعلمي الختامية للدرس */}
+                <div style={{ marginTop: '15px' }}>
+                  <strong style={{ fontSize: '15px', color: '#1e293b' }}>📝 خطوات التنفيذ:</strong>
+                  <ul style={{ paddingRight: '20px', marginTop: '10px', color: '#475569', lineHeight: '1.7', fontSize: '15px' }}>
+                    {activity.steps.map((step, i) => (
+                      <li key={i} style={{ marginBottom: '8px' }}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+{/* أسئلة أقيم تعلمي الختامية للدرس */}
           <section style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #bae6fd' }}>
             <h3 style={{ fontSize: '20px', color: '#0369a1', margin: '0 0 12px 0', fontWeight: 'bold', borderBottom: '1px solid #edf2f7', paddingBottom: '6px' }}>✏️ أسئلة تقويم الأداء وتأكيد التعلم (أقيم تعلمي)</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
               {lessonData?.assessment_questions?.map((q) => (
-                <div key={q.id} style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '10px', border: '1px solid #edf2f7' }}>
-                  <p style={{ fontSize: '15.5px', margin: 0, fontWeight: 'bold', color: '#2d3748' }}>{q.question_text}</p>
-                  {q.sub_questions && q.sub_questions.map((sub, sIdx) => (
-                    <p key={sIdx} style={{ fontSize: '14px', margin: '4px 12px 0 0', color: '#4a5568' }}>• {sub.text} {sub.correct_answer && `(مفتاح الإجابة: ${sub.correct_answer})`}</p>
-                  ))}
+                <div key={q.id} style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  
+                  {/* رأس السؤال وزر الإظهار */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: '16px', margin: 0, fontWeight: 'bold', color: '#1e293b' }}>{q.question_text}</p>
+                      
+                      {/* الفروع الخاصة بالصح والخطأ أو الدوائر */}
+                      {q.sub_questions && q.sub_questions.map((sub, sIdx) => (
+                        <p key={sIdx} style={{ fontSize: '14.5px', margin: '6px 12px 0 0', color: '#475569' }}>
+                          • {sub.text} 
+                          {/* الشرط هنا: لن يظهر مفتاح الإجابة إلا إذا تم الضغط على الزر */}
+                          {sub.correct_answer && visibleAnswers[q.id] && (
+                            <span style={{ color: '#059669', fontWeight: 'bold' }}> (مفتاح الإجابة: {sub.correct_answer})</span>
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                    
+                    {/* زر عرض الإجابة النموذجية */}
+                    {q.model_answer && (
+                      <button 
+                        onClick={() => toggleAnswer(q.id)}
+                        style={{ backgroundColor: visibleAnswers[q.id] ? '#f1f5f9' : '#e0f2fe', color: visibleAnswers[q.id] ? '#475569' : '#0284c7', border: '1px solid', borderColor: visibleAnswers[q.id] ? '#cbd5e1' : '#bae6fd', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', fontSize: '13.5px', whiteSpace: 'nowrap', transition: 'all 0.2s' }}
+                      >
+                        {visibleAnswers[q.id] ? "🙈 إخفاء الإجابة" : "👁️ عرض الإجابة النموذجية"}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* مربع الإجابة النموذجية المنسق */}
+                  {q.model_answer && visibleAnswers[q.id] && (
+                    <div style={{ marginTop: '16px', padding: '14px', backgroundColor: '#ecfdf5', borderRight: '4px solid #10b981', borderRadius: '8px' }}>
+                      <strong style={{ color: '#047857', fontSize: '14.5px', display: 'block', marginBottom: '6px' }}>💡 الإجابة النموذجية المعتمدة:</strong>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#065f46', lineHeight: '1.7' }}>{q.model_answer}</p>
+                    </div>
+                  )}
+
                 </div>
               ))}
             </div>
           </section>
-
         </div>
 
         {/* العمود الثاني (اليسار): أدوات المعلم ومؤقت مراحل الحصة الأربع والقرعة العشوائية */}
