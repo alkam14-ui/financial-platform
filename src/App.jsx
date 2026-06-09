@@ -5,7 +5,6 @@ import lessonDataL1 from './data/curriculum_g7_s1.json';
 import Navbar from './components/Navbar.jsx';
 import LessonView from './pages/LessonView.jsx';
 import ExamsManager from './pages/ExamsManager.jsx';
-// استدعاء شاشة إدارة الطلاب الجديدة
 import StudentsManager from './pages/StudentsManager.jsx';
 
 function App() {
@@ -72,10 +71,7 @@ function App() {
         classroom_activities: [],
         assessment_questions: [
           { id: "q1", question_text: "سيتم إضافة أسئلة التقييم قريباً." }
-        ],
-        whatsapp_hybrid_delivery: {
-          broadcast_text: `📚 درس (${lesson.lesson_title}) قيد الإعداد.`
-        }
+        ]
       });
     }
   };
@@ -187,7 +183,7 @@ function App() {
                   <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>إعداد الامتحانات</h3>
                 </div>
                 <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>بناء وتوليد اختبارات التقويم الأول والثاني والنهائي بشكل دقيق، وتوزيع حقول العلامات والفقرات بالتساوي، مع طباعة الأوراق الرسمية فوراً.</p>
-                <button onClick={() => setNavigationPage('exams_page')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: 'auto' }}>دخول</button>
+                <button onClick={() => setNavigationPage('exams_page')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: '10px' }}>دخول</button>
               </div>
 
               {/* بطاقة إدارة الطلاب */}
@@ -197,7 +193,7 @@ function App() {
                   <h3 style={{ fontSize: '24px', color: '#0369a1', margin: '0', fontWeight: 'bold' }}>إدارة الطلاب</h3>
                 </div>
                 <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6', margin: '0', textAlign: 'justify' }}>رفع قوائم أسماء الطلاب عبر ملفات Excel لربطها ببنك التقييم التكويني والمشاركة الصفية.</p>
-                <button onClick={() => setNavigationPage('students_manager')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: 'auto' }}>دخول</button>
+                <button onClick={() => setNavigationPage('students_manager')} style={{ backgroundColor: '#0369a1', color: '#fff', fontWeight: 'bold', border: 0, padding: '14px', borderRadius: '10px', cursor: 'pointer', fontSize: '16px', fontFamily: 'Cairo', marginTop: '10px' }}>دخول</button>
               </div>
 
             </div>
