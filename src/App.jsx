@@ -249,6 +249,7 @@ function App() {
       const errorMessages = {
         'auth/popup-closed-by-user': 'تم إغلاق نافذة Google قبل إكمال تسجيل الدخول.',
         'auth/popup-blocked': 'المتصفح منع نافذة Google. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.',
+        'auth/operation-not-allowed': 'تسجيل الدخول باستخدام Google غير مفعّل في Firebase. فعّل Google من Authentication ثم Sign-in method.',
         'auth/unauthorized-domain': 'هذا النطاق غير مصرّح له في Firebase. أضف alkam14-ui.github.io إلى Authorized domains.'
       };
       setAuthError(errorMessages[error.code] || 'تعذر تسجيل الدخول باستخدام Google. حاول مرة أخرى.');
