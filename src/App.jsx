@@ -6,11 +6,21 @@ import Navbar from './components/Navbar.jsx';
 import LessonView from './pages/LessonView.jsx';
 import ExamsManager from './pages/ExamsManager.jsx';
 import StudentsManager from './pages/StudentsManager.jsx';
+import { auth, db } from './firebase.js';
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 function App() {
   const [teacherName, setTeacherName] = useState(() => localStorage.getItem('teacherName') || '');
   const [schoolName, setSchoolName] = useState(() => localStorage.getItem('schoolName') || '');
   const [directorateName, setDirectorateName] = useState(() => localStorage.getItem('directorateName') || '');
+  const [teacherEmail, setTeacherEmail] = useState('');
+  const [teacherPassword, setTeacherPassword] = useState('');
+  const [authMode, setAuthMode] = useState('signup');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const [navigationPage, setNavigationPage] = useState(() => {
     if (localStorage.getItem('teacherName') && localStorage.getItem('schoolName')) {
@@ -24,6 +34,15 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState('g7_s1_u1');
   const [selectedLesson, setSelectedLesson] = useState('g7_s1_u1_l1');
   const [activeLessonData, setActiveLessonData] = useState(null);
+
+  const applyTeacherProfile = (profile) => {
+    setTeacherName(profile.teacherName || '');
+    setSchoolName(profile.schoolName || '');
+    setDirectorateName(profile.directorateName || '');
+    localStorage.setItem('teacherName', profile.teacherName || '');
+    localStorage.setItem('schoolName', profile.schoolName || '');
+    localStorage.setItem('directorateName', profile.directorateName || '');
+  };
 
   const currentGradeObj = curriculumIndex.grades.find(g => g.grade_id === selectedGrade);
   const currentSemesterObj = currentGradeObj?.semesters.find(s => s.semester_id === selectedSemester);
@@ -65,6 +84,41 @@ function App() {
     }
   }, [selectedUnit]);
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      setAuthError('');
+
+      if (!user) {
+        setNavigationPage('registration');
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const teacherRef = doc(db, 'teachers', user.uid);
+        const teacherSnap = await getDoc(teacherRef);
+
+        if (teacherSnap.exists()) {
+          applyTeacherProfile(teacherSnap.data());
+          setTeacherEmail(user.email || '');
+          setNavigationPage('dashboard');
+        } else {
+          setTeacherEmail(user.email || '');
+          setNavigationPage('registration');
+        }
+      } catch (error) {
+        console.error('Error loading teacher profile:', error);
+        setAuthError('تعذر تحميل بيانات الحساب. حاول مرة أخرى.');
+        setNavigationPage('registration');
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
   const handleSelectLesson = (lesson) => {
     setSelectedLesson(lesson.lesson_id);
     if (lesson.lesson_id === 'g7_s1_u1_l1' || lesson.id === 'g7_s1_u1_l1') {
@@ -97,17 +151,54 @@ function App() {
     }
   };
 
-  const handleRegistrationSubmit = (e) => {
+  const handleRegistrationSubmit = async (e) => {
     e.preventDefault();
-    if (teacherName && schoolName && directorateName) {
-      localStorage.setItem('teacherName', teacherName);
-      localStorage.setItem('schoolName', schoolName);
-      localStorage.setItem('directorateName', directorateName);
-      setNavigationPage('dashboard');
+    setAuthError('');
+    setAuthSubmitting(true);
+
+    try {
+      if (authMode === 'login') {
+        const credential = await signInWithEmailAndPassword(auth, teacherEmail, teacherPassword);
+        const teacherSnap = await getDoc(doc(db, 'teachers', credential.user.uid));
+
+        if (teacherSnap.exists()) {
+          applyTeacherProfile(teacherSnap.data());
+          setNavigationPage('dashboard');
+        } else {
+          setAuthError('تم تسجيل الدخول، لكن لم يتم العثور على ملف المعلم. أنشئ حساباً جديداً أو تواصل مع مدير المنصة.');
+        }
+        return;
+      }
+
+      if (teacherName && schoolName && directorateName && teacherEmail && teacherPassword) {
+        const credential = await createUserWithEmailAndPassword(auth, teacherEmail, teacherPassword);
+        const profile = {
+          teacherName,
+          schoolName,
+          directorateName,
+          email: credential.user.email,
+          createdAt: serverTimestamp()
+        };
+
+        await setDoc(doc(db, 'teachers', credential.user.uid), profile);
+        applyTeacherProfile(profile);
+        setNavigationPage('dashboard');
+      }
+    } catch (error) {
+      console.error('Authentication error:', error);
+      const errorMessages = {
+        'auth/email-already-in-use': 'هذا البريد مستخدم مسبقاً. جرّب تسجيل الدخول بدلاً من إنشاء حساب.',
+        'auth/invalid-email': 'صيغة البريد الإلكتروني غير صحيحة.',
+        'auth/invalid-credential': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+        'auth/weak-password': 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.'
+      };
+      setAuthError(errorMessages[error.code] || 'حدث خطأ أثناء التسجيل. حاول مرة أخرى.');
+    } finally {
+      setAuthSubmitting(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     localStorage.removeItem('teacherName');
     localStorage.removeItem('schoolName');
     localStorage.removeItem('directorateName');
@@ -115,8 +206,20 @@ function App() {
     setTeacherName('');
     setSchoolName('');
     setDirectorateName('');
+    setTeacherEmail('');
+    setTeacherPassword('');
+    setCurrentUser(null);
+    await signOut(auth);
     setNavigationPage('registration');
   };
+
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', direction: 'rtl', backgroundColor: '#e0f2fe', fontFamily: 'Cairo, sans-serif', color: '#0369a1', fontWeight: '900', fontSize: '22px' }}>
+        جاري تحميل المنصة...
+      </div>
+    );
+  }
 
   return (
     <div className="platform-root-wrapper" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', direction: 'rtl', backgroundColor: '#e0f2fe' }}>
@@ -127,21 +230,42 @@ function App() {
           <div style={{ width: '100%', maxWidth: '500px', backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', border: '2px solid #bae6fd', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', textAlign: 'center' }}>
             <h1 style={{ fontSize: '42px', color: '#0369a1', margin: '0 0 5px 0', fontWeight: '900' }}>منصة الثقافة المالية</h1>
             <p style={{ fontSize: '18px', color: '#0284c7', fontWeight: 'bold', margin: '0 0 35px 0' }}>إعداد المشرف التربوي: حسين علقم</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: '#f0f9ff', padding: '6px', borderRadius: '14px', border: '1px solid #bae6fd', marginBottom: '22px' }}>
+              <button type="button" onClick={() => setAuthMode('signup')} style={{ backgroundColor: authMode === 'signup' ? '#0284c7' : 'transparent', color: authMode === 'signup' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>حساب جديد</button>
+              <button type="button" onClick={() => setAuthMode('login')} style={{ backgroundColor: authMode === 'login' ? '#0284c7' : 'transparent', color: authMode === 'login' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>تسجيل دخول</button>
+            </div>
             <form onSubmit={handleRegistrationSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', textAlign: 'right' }}>
+              {authMode === 'signup' && (
+                <>
+                  <div>
+                    <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>👤 اسم المعلم / المعلمة:</label>
+                    <input type="text" placeholder="أدخل الاسم الكامل هنا" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>🏫 اسم المدرسة:</label>
+                    <input type="text" placeholder="أدخل اسم مدرستك الرسمية" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>📂 اسم المديرية:</label>
+                    <input type="text" placeholder="أدخل اسم مديرية التربية والتعليم" value={directorateName} onChange={(e) => setDirectorateName(e.target.value)} required />
+                  </div>
+                </>
+              )}
               <div>
-                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>👤 اسم المعلم / المعلمة:</label>
-                <input type="text" placeholder="أدخل الاسم الكامل هنا" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} required />
+                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>البريد الإلكتروني:</label>
+                <input type="email" placeholder="teacher@example.com" value={teacherEmail} onChange={(e) => setTeacherEmail(e.target.value)} required />
               </div>
               <div>
-                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>🏫 اسم المدرسة:</label>
-                <input type="text" placeholder="أدخل اسم مدرستك الرسمية" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required />
+                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>كلمة المرور:</label>
+                <input type="password" placeholder="6 أحرف على الأقل" value={teacherPassword} onChange={(e) => setTeacherPassword(e.target.value)} required minLength={6} />
               </div>
-              <div>
-                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>📂 اسم المديرية:</label>
-                <input type="text" placeholder="أدخل اسم مديرية التربية والتعليم" value={directorateName} onChange={(e) => setDirectorateName(e.target.value)} required />
-              </div>
-              <button type="submit" style={{ backgroundColor: '#0284c7', color: '#fff', fontWeight: '900', border: 0, padding: '14px', borderRadius: '12px', fontSize: '17px', cursor: 'pointer', marginTop: '10px', fontFamily: 'Cairo' }}>
-                💾 تسجيل الدخول وتفعيل المنصة
+              {authError && (
+                <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold' }}>
+                  {authError}
+                </div>
+              )}
+              <button type="submit" disabled={authSubmitting} style={{ backgroundColor: authSubmitting ? '#94a3b8' : '#0284c7', color: '#fff', fontWeight: '900', border: 0, padding: '14px', borderRadius: '12px', fontSize: '17px', cursor: authSubmitting ? 'not-allowed' : 'pointer', marginTop: '10px', fontFamily: 'Cairo' }}>
+                {authSubmitting ? 'جاري المعالجة...' : authMode === 'signup' ? 'إنشاء حساب وتفعيل المنصة' : 'تسجيل الدخول'}
               </button>
             </form>
           </div>
