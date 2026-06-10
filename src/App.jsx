@@ -7,7 +7,7 @@ import LessonView from './pages/LessonView.jsx';
 import ExamsManager from './pages/ExamsManager.jsx';
 import StudentsManager from './pages/StudentsManager.jsx';
 import { auth, db } from './firebase.js';
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 function App() {
@@ -21,6 +21,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
   const [navigationPage, setNavigationPage] = useState(() => {
     if (localStorage.getItem('teacherName') && localStorage.getItem('schoolName')) {
@@ -102,9 +103,13 @@ function App() {
         if (teacherSnap.exists()) {
           applyTeacherProfile(teacherSnap.data());
           setTeacherEmail(user.email || '');
+          setNeedsProfileCompletion(false);
           setNavigationPage('dashboard');
         } else {
+          setTeacherName(user.displayName || '');
           setTeacherEmail(user.email || '');
+          setNeedsProfileCompletion(true);
+          setAuthMode('signup');
           setNavigationPage('registration');
         }
       } catch (error) {
@@ -157,6 +162,25 @@ function App() {
     setAuthSubmitting(true);
 
     try {
+      if (needsProfileCompletion && currentUser) {
+        if (teacherName && schoolName && directorateName) {
+          const profile = {
+            teacherName,
+            schoolName,
+            directorateName,
+            email: currentUser.email,
+            authProvider: 'google',
+            createdAt: serverTimestamp()
+          };
+
+          await setDoc(doc(db, 'teachers', currentUser.uid), profile);
+          applyTeacherProfile(profile);
+          setNeedsProfileCompletion(false);
+          setNavigationPage('dashboard');
+        }
+        return;
+      }
+
       if (authMode === 'login') {
         const credential = await signInWithEmailAndPassword(auth, teacherEmail, teacherPassword);
         const teacherSnap = await getDoc(doc(db, 'teachers', credential.user.uid));
@@ -177,6 +201,7 @@ function App() {
           schoolName,
           directorateName,
           email: credential.user.email,
+          authProvider: 'password',
           createdAt: serverTimestamp()
         };
 
@@ -198,6 +223,40 @@ function App() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    setAuthSubmitting(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const credential = await signInWithPopup(auth, provider);
+      const teacherSnap = await getDoc(doc(db, 'teachers', credential.user.uid));
+
+      if (teacherSnap.exists()) {
+        applyTeacherProfile(teacherSnap.data());
+        setNeedsProfileCompletion(false);
+        setNavigationPage('dashboard');
+      } else {
+        setTeacherName(credential.user.displayName || '');
+        setTeacherEmail(credential.user.email || '');
+        setNeedsProfileCompletion(true);
+        setAuthMode('signup');
+        setNavigationPage('registration');
+      }
+    } catch (error) {
+      console.error('Google sign-in error:', error);
+      const errorMessages = {
+        'auth/popup-closed-by-user': 'تم إغلاق نافذة Google قبل إكمال تسجيل الدخول.',
+        'auth/popup-blocked': 'المتصفح منع نافذة Google. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.',
+        'auth/unauthorized-domain': 'هذا النطاق غير مصرّح له في Firebase. أضف alkam14-ui.github.io إلى Authorized domains.'
+      };
+      setAuthError(errorMessages[error.code] || 'تعذر تسجيل الدخول باستخدام Google. حاول مرة أخرى.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const handleLogout = async () => {
     localStorage.removeItem('teacherName');
     localStorage.removeItem('schoolName');
@@ -209,6 +268,7 @@ function App() {
     setTeacherEmail('');
     setTeacherPassword('');
     setCurrentUser(null);
+    setNeedsProfileCompletion(false);
     await signOut(auth);
     setNavigationPage('registration');
   };
@@ -230,10 +290,17 @@ function App() {
           <div style={{ width: '100%', maxWidth: '500px', backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', border: '2px solid #bae6fd', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', textAlign: 'center' }}>
             <h1 style={{ fontSize: '42px', color: '#0369a1', margin: '0 0 5px 0', fontWeight: '900' }}>منصة الثقافة المالية</h1>
             <p style={{ fontSize: '18px', color: '#0284c7', fontWeight: 'bold', margin: '0 0 35px 0' }}>إعداد المشرف التربوي: حسين علقم</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: '#f0f9ff', padding: '6px', borderRadius: '14px', border: '1px solid #bae6fd', marginBottom: '22px' }}>
-              <button type="button" onClick={() => setAuthMode('signup')} style={{ backgroundColor: authMode === 'signup' ? '#0284c7' : 'transparent', color: authMode === 'signup' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>حساب جديد</button>
-              <button type="button" onClick={() => setAuthMode('login')} style={{ backgroundColor: authMode === 'login' ? '#0284c7' : 'transparent', color: authMode === 'login' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>تسجيل دخول</button>
-            </div>
+            {!needsProfileCompletion && (
+              <>
+                <button type="button" onClick={handleGoogleSignIn} disabled={authSubmitting} style={{ width: '100%', backgroundColor: '#ffffff', color: '#334155', border: '2px solid #cbd5e1', padding: '13px', borderRadius: '12px', cursor: authSubmitting ? 'not-allowed' : 'pointer', fontFamily: 'Cairo', fontWeight: '900', fontSize: '16px', marginBottom: '16px' }}>
+                  الدخول باستخدام Google
+                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: '#f0f9ff', padding: '6px', borderRadius: '14px', border: '1px solid #bae6fd', marginBottom: '22px' }}>
+                  <button type="button" onClick={() => setAuthMode('signup')} style={{ backgroundColor: authMode === 'signup' ? '#0284c7' : 'transparent', color: authMode === 'signup' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>حساب جديد</button>
+                  <button type="button" onClick={() => setAuthMode('login')} style={{ backgroundColor: authMode === 'login' ? '#0284c7' : 'transparent', color: authMode === 'login' ? '#fff' : '#0369a1', border: 0, padding: '10px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: '900' }}>تسجيل دخول</button>
+                </div>
+              </>
+            )}
             <form onSubmit={handleRegistrationSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', textAlign: 'right' }}>
               {authMode === 'signup' && (
                 <>
@@ -251,21 +318,25 @@ function App() {
                   </div>
                 </>
               )}
-              <div>
-                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>البريد الإلكتروني:</label>
-                <input type="email" placeholder="teacher@example.com" value={teacherEmail} onChange={(e) => setTeacherEmail(e.target.value)} required />
-              </div>
-              <div>
-                <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>كلمة المرور:</label>
-                <input type="password" placeholder="6 أحرف على الأقل" value={teacherPassword} onChange={(e) => setTeacherPassword(e.target.value)} required minLength={6} />
-              </div>
+              {!needsProfileCompletion && (
+                <>
+                  <div>
+                    <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>البريد الإلكتروني:</label>
+                    <input type="email" placeholder="teacher@example.com" value={teacherEmail} onChange={(e) => setTeacherEmail(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '15px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>كلمة المرور:</label>
+                    <input type="password" placeholder="6 أحرف على الأقل" value={teacherPassword} onChange={(e) => setTeacherPassword(e.target.value)} required minLength={6} />
+                  </div>
+                </>
+              )}
               {authError && (
                 <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold' }}>
                   {authError}
                 </div>
               )}
               <button type="submit" disabled={authSubmitting} style={{ backgroundColor: authSubmitting ? '#94a3b8' : '#0284c7', color: '#fff', fontWeight: '900', border: 0, padding: '14px', borderRadius: '12px', fontSize: '17px', cursor: authSubmitting ? 'not-allowed' : 'pointer', marginTop: '10px', fontFamily: 'Cairo' }}>
-                {authSubmitting ? 'جاري المعالجة...' : authMode === 'signup' ? 'إنشاء حساب وتفعيل المنصة' : 'تسجيل الدخول'}
+                {authSubmitting ? 'جاري المعالجة...' : needsProfileCompletion ? 'حفظ بيانات المدرسة والمتابعة' : authMode === 'signup' ? 'إنشاء حساب وتفعيل المنصة' : 'تسجيل الدخول'}
               </button>
             </form>
           </div>
