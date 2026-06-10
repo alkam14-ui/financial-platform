@@ -30,7 +30,28 @@ function App() {
   const currentUnitsList = currentSemesterObj?.units || [];
   const currentUnitObj = currentUnitsList.find(u => u.unit_id === selectedUnit);
   const currentLessonsList = currentUnitObj?.lessons || [];
-  const allSemesterLessons = currentUnitsList.flatMap(u => u.lessons) || [];
+
+  // ==========================================
+  // إضافة جديدة: استخراج كافة الدروس لجميع الصفوف لفك ارتباط شاشة الامتحانات
+  // ==========================================
+  const allLessonsFlatArray = [];
+  if (curriculumIndex && curriculumIndex.grades) {
+    curriculumIndex.grades.forEach(grade => {
+      grade.semesters?.forEach(semester => {
+        semester.units?.forEach(unit => {
+          unit.lessons?.forEach(lesson => {
+            allLessonsFlatArray.push({
+              ...lesson,
+              // تنظيف رقم الصف والفصل لتسهيل الفلترة في شاشة الامتحانات
+              grade_id: grade.grade_id.replace('g', ''), 
+              semester: semester.semester_id.replace('s', '') 
+            });
+          });
+        });
+      });
+    });
+  }
+  // ==========================================
 
   useEffect(() => {
     if (currentUnitsList.length > 0) {
@@ -218,14 +239,21 @@ function App() {
         </>
       )}
 
-      {/* شاشة الامتحانات */}
+      {/* شاشة الامتحانات (تم تعديل الخصائص المرسلة هنا) */}
       {navigationPage === 'exams_page' && (
         <>
           <div className="no-print">
             <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
           </div>
           <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-            <ExamsManager teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} currentGradeName={currentGradeObj?.grade_name || "الصف السابع الأساسي"} allSemesterLessons={allSemesterLessons} onBackToDashboard={() => setNavigationPage('dashboard')} />
+            <ExamsManager 
+              teacherName={teacherName} 
+              schoolName={schoolName} 
+              directorateName={directorateName} 
+              currentGradeName={currentGradeObj?.grade_name || "الصف السابع الأساسي"} 
+              allLessonsDatabase={allLessonsFlatArray} 
+              onBackToDashboard={() => setNavigationPage('dashboard')} 
+            />
           </div>
         </>
       )}

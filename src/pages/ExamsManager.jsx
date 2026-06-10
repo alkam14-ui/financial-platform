@@ -1,10 +1,94 @@
-import React, { useState } from 'react';
-function ExamsManager({ teacherName, schoolName, directorateName, currentGradeName, allSemesterLessons, onBackToDashboard }) {
+import React, { useState, useMemo, useEffect } from 'react';
+
+function ExamsManager({ 
+  teacherName, 
+  schoolName, 
+  directorateName, 
+  currentGradeName, 
+  allLessonsDatabase, // هنا نستقبل قاعدة البيانات كاملة لجميع الصفوف دون فلترة مسبقة
+  allSemesterLessons,  // حماية إضافية في حال تم تمريرها بالاسم القديم
+  onBackToDashboard 
+}) {
+  
+  // دمج البيانات المستقبلة لضمان استقرار التطبيق
+  const mainLessonsArray = allLessonsDatabase || allSemesterLessons || [];
+
   const [activeExamType, setActiveExamType] = useState('first'); 
-  const [startLesson, setStartLesson] = useState('g7_s1_u1_l1');
-  const [endLesson, setEndLesson] = useState('g7_s1_u1_l4');
+  const [startLesson, setStartLesson] = useState('');
+  const [endLesson, setEndLesson] = useState('');
   const [showGeneratedExamPaper, setShowGeneratedExamPaper] = useState(false);
   const [seeds, setSeeds] = useState({ s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 });
+
+  // خريطة أسماء الصفوف لعرضها بشكل أنيق ومطابقتها برمجياً
+  const gradeNamesMap = {
+    '7': 'الصف السابع',
+    '8': 'الصف الثامن',
+    '9': 'الصف التاسع',
+    '10': 'الصف العاشر',
+    '11': 'الصف الحادي عشر',
+    '12': 'الصف الثاني عشر (التوجيهي)'
+  };
+
+  // دالة ذكية لتحديد الصف الافتراضي عند فتح الشاشة بناءً على اختيار المعلم الأخير في اللوحة الرئيسية
+  const getInitialGrade = () => {
+    const name = String(currentGradeName || '').toLowerCase();
+    if (name.includes('سابع') || name.includes('7')) return '7';
+    if (name.includes('ثامن') || name.includes('8')) return '8';
+    if (name.includes('تاسع') || name.includes('9')) return '9';
+    if (name.includes('عاشر') || name.includes('10')) return '10';
+    if (name.includes('حادي') || name.includes('11')) return '11';
+    if (name.includes('ثاني عشر') || name.includes('12') || name.includes('توجيهي')) return '12';
+    return '7'; // افتراضي
+  };
+
+  // حالات الفلاتر المستقلة داخل شاشة الامتحانات
+  const [selectedGrade, setSelectedGrade] = useState(getInitialGrade);
+  const [selectedSemester, setSelectedSemester] = useState('1');
+
+  // حماية حالة التطبيق: إذا تحول المعلم من الصف 12 لصف آخر وكان خيار "الفصلين" نشطاً، يتم إرجاعه تلقائياً للفصل الأول
+  useEffect(() => {
+    if (selectedGrade !== '12' && selectedSemester === 'both') {
+      setSelectedSemester('1');
+    }
+  }, [selectedGrade, selectedSemester]);
+
+  // الفلترة الداخلية الشاملة بناءً على المدخلات المستقلة الجديدة
+  const filteredLessons = useMemo(() => {
+    if (!mainLessonsArray || !Array.isArray(mainLessonsArray)) return [];
+    
+    return mainLessonsArray.filter(lesson => {
+      // 1. استخراج رقم الصف من بيانات الدرس بطريقة مرنة
+      const lessonGrade = String(
+        lesson.grade_id || lesson.grade || 
+        (lesson.lesson_id?.includes('g7') ? '7' :
+         lesson.lesson_id?.includes('g8') ? '8' :
+         lesson.lesson_id?.includes('g9') ? '9' :
+         lesson.lesson_id?.includes('g10') ? '10' :
+         lesson.lesson_id?.includes('g11') ? '11' :
+         lesson.lesson_id?.includes('g12') ? '12' : '')
+      );
+      
+      if (lessonGrade !== selectedGrade) return false;
+
+      // 2. تصفية بناءً على الفصل الدراسي المختار
+      if (selectedGrade === '12' && selectedSemester === 'both') return true; // عرض الفصلين معاً للتوجيهي
+      
+      const lessonSem = lesson.semester ? String(lesson.semester) : (lesson.lesson_id?.includes('_s1_') ? '1' : lesson.lesson_id?.includes('_s2_') ? '2' : '1');
+      
+      return lessonSem === selectedSemester;
+    });
+  }, [mainLessonsArray, selectedGrade, selectedSemester]);
+
+  // تحديث تلقائي لنطاق القوائم المنسدلة (من / إلى) فور تغير الفلاتر لمنع بقاء قيم قديمة معلقة
+  useEffect(() => {
+    if (filteredLessons.length > 0) {
+      setStartLesson(filteredLessons[0].lesson_id);
+      setEndLesson(filteredLessons[filteredLessons.length - 1].lesson_id);
+    } else {
+      setStartLesson('');
+      setEndLesson('');
+    }
+  }, [filteredLessons]);
 
   const [examConfig, setExamConfig] = useState({
     mcqCount: 0, mcqMark: 0,
@@ -37,33 +121,78 @@ function ExamsManager({ teacherName, schoolName, directorateName, currentGradeNa
   let renderedQuestionsCount = 0;
 
   return (
-    <div style={{ fontFamily: 'Cairo, sans-serif' }} id="printable-exam-sheet-container">
+    <div style={{ fontFamily: 'Cairo, sans-serif', direction: 'rtl' }} id="printable-exam-sheet-container">
       
       <div className="no-print" style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '2px solid #0369a1', marginBottom: '24px' }}>
-<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-  <button onClick={onBackToDashboard} style={{ backgroundColor: '#ffffff', color: '#0284c7', border: '2px solid #0284c7', padding: '8px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: 'Cairo' }}>
-    🔙 العودة للوحة التحكم الرئيسية
-  </button>
-  <h4 style={{ fontSize: '22px', color: '#0369a1', margin: '0', textAlign: 'center', flex: 1 }}>🎯 مركز التقييم والقياس وصياغة الامتحانات الذكية</h4>
-  <div style={{ width: '160px' }}></div>
-</div>        
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <button onClick={onBackToDashboard} style={{ backgroundColor: '#ffffff', color: '#0284c7', border: '2px solid #0284c7', padding: '8px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', fontFamily: 'Cairo' }}>
+            🔙 العودة للوحة التحكم الرئيسية
+          </button>
+          <h4 style={{ fontSize: '22px', color: '#0369a1', margin: '0', textAlign: 'center', flex: 1 }}>🎯 مركز التقييم والقياس وصياغة الامتحانات الذكية</h4>
+          <div style={{ width: '160px' }}></div>
+        </div>        
+        
         <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px' }}>
           <button onClick={() => { setActiveExamType('first'); setShowGeneratedExamPaper(false); }} style={{ padding: '8px 16px', borderRadius: '8px', border: 0, cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', backgroundColor: activeExamType === 'first' ? '#0284c7' : '#e0f2fe', color: activeExamType === 'first' ? '#fff' : '#0369a1' }}>📝 التقويم الأول</button>
           <button onClick={() => { setActiveExamType('second'); setShowGeneratedExamPaper(false); }} style={{ padding: '8px 16px', borderRadius: '8px', border: 0, cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', backgroundColor: activeExamType === 'second' ? '#0284c7' : '#e0f2fe', color: activeExamType === 'second' ? '#fff' : '#0369a1' }}>📝 التقويم الثاني</button>
           <button onClick={() => { setActiveExamType('final'); setShowGeneratedExamPaper(false); }} style={{ padding: '8px 16px', borderRadius: '8px', border: 0, cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', backgroundColor: activeExamType === 'final' ? '#0369a1' : '#e0f2fe', color: activeExamType === 'final' ? '#fff' : '#0369a1' }}>🎓 الامتحان النهائي</button>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', backgroundColor: '#f0f9ff', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd', marginBottom: '20px' }}>
+        {/* لوحة التحكم بالفلاتر المستقلة */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', backgroundColor: '#f0f9ff', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd', marginBottom: '20px', alignItems: 'center' }}>
+          
+          {/* 1. قائمة اختيار الصف مستقلة */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontWeight: 'bold', fontSize: '15px' }}>📖 المادة من درس:</label>
-            <select value={startLesson} onChange={(e) => setStartLesson(e.target.value)} style={{ fontSize: '14px', width: 'auto' }}>
-              {allSemesterLessons.map(l => (<option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>))}
+            <label style={{ fontWeight: 'bold', fontSize: '15px', color: '#0369a1' }}>🏫 الصف الدراسي:</label>
+            <select 
+              value={selectedGrade} 
+              onChange={(e) => { setSelectedGrade(e.target.value); setShowGeneratedExamPaper(false); }} 
+              style={{ fontSize: '14px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #0284c7', fontFamily: 'Cairo', backgroundColor: '#fff', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              <option value="7">الصف السابع</option>
+              <option value="8">الصف الثامن</option>
+              <option value="9">الصف التاسع</option>
+              <option value="10">الصف العاشر</option>
+              <option value="11">الصف الحادي عشر</option>
+              <option value="12">الصف الثاني عشر (التوجيهي)</option>
             </select>
           </div>
+
+          {/* 2. قائمة اختيار الفصل الدراسي بناءً على نوع الصف */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontWeight: 'bold', fontSize: '15px', color: '#0369a1' }}>📅 الفصل الدراسي:</label>
+            <select 
+              value={selectedSemester} 
+              onChange={(e) => { setSelectedSemester(e.target.value); setShowGeneratedExamPaper(false); }} 
+              style={{ fontSize: '14px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #0284c7', fontFamily: 'Cairo', backgroundColor: '#fff', cursor: 'pointer' }}
+            >
+              <option value="1">الفصل الدراسي الأول</option>
+              <option value="2">الفصل الدراسي الثاني</option>
+              {selectedGrade === '12' && <option value="both">الفصلين معاً (الدورة الكاملة)</option>}
+            </select>
+          </div>
+
+          {/* 3. اختيار نطاق المادة من درس */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontWeight: 'bold', fontSize: '15px' }}>📖 المادة من درس:</label>
+            <select value={startLesson} onChange={(e) => setStartLesson(e.target.value)} style={{ fontSize: '14px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #ccc', fontFamily: 'Cairo', backgroundColor: '#fff' }}>
+              {filteredLessons.length > 0 ? (
+                filteredLessons.map(l => (<option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>))
+              ) : (
+                <option value="">لا توجد دروس متاحة لهذا النطاق</option>
+              )}
+            </select>
+          </div>
+
+          {/* 4. اختيار نطاق المادة إلى درس */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={{ fontWeight: 'bold', fontSize: '15px' }}>📖 إلى درس:</label>
-            <select value={endLesson} onChange={(e) => setEndLesson(e.target.value)} style={{ fontSize: '14px', width: 'auto' }}>
-              {allSemesterLessons.map(l => (<option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>))}
+            <select value={endLesson} onChange={(e) => setEndLesson(e.target.value)} style={{ fontSize: '14px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #ccc', fontFamily: 'Cairo', backgroundColor: '#fff' }}>
+              {filteredLessons.length > 0 ? (
+                filteredLessons.map(l => (<option key={l.lesson_id} value={l.lesson_id}>{l.lesson_title}</option>))
+              ) : (
+                <option value="">لا توجد دروس متاحة لهذا النطاق</option>
+              )}
             </select>
           </div>
         </div>
@@ -104,7 +233,7 @@ function ExamsManager({ teacherName, schoolName, directorateName, currentGradeNa
               </div>
               <div className="exam-header-center">
                 <strong>{activeExamType === 'first' ? "امتحان التقويم الأول" : activeExamType === 'second' ? "امتحان التقويم الثاني" : "الامتحان النهائي"}</strong>
-                <span>مبحث: الثقافة المالية / {currentGradeName}</span>
+                <span>مبحث: الثقافة المالية / {gradeNamesMap[selectedGrade]}</span>
               </div>
               <div className="exam-header-left">
                 <div>اسم الطالب: __________________</div>

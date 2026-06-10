@@ -1,23 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { db } from '../firebase';
+import { collection, getDocs, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 
 function StudentsManager({ onBackToDashboard }) {
   const [students, setStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('manager'); 
-  
-  // حالة لاختيار الفصل الدراسي لعرضه وطباعته
-  const [activeSemester, setActiveSemester] = useState('s1'); // 's1' للفصل الأول, 's2' للفصل الثاني
-
+  const [activeSemester, setActiveSemester] = useState('s1');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
-  const [editingId, setEditingId] = useState(null);
-  const [editFormData, setEditFormData] = useState({ name: '', grade: '', section: '' });
+  const [loading, setLoading] = useState(true);
 
+  const studentsCollectionRef = collection(db, "students");
+
+  // جلب البيانات من Firebase عند تحميل الشاشة
   useEffect(() => {
-    const savedData = localStorage.getItem('school_students');
-    if (savedData) {
-      setStudents(JSON.parse(savedData));
-    }
+    const fetchStudents = async () => {
+      try {
+        setLoading(true);
+        const data = await getDocs(studentsCollectionRef);
+        setStudents(data.docs.map((d) => ({ ...d.data(), id: d.id })));
+      } catch (error) {
+        console.error("خطأ في جلب البيانات من فايربيس:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStudents();
   }, []);
 
   const uniqueGrades = [...new Set(students.map(s => s.grade))].filter(Boolean);
@@ -33,92 +42,97 @@ function StudentsManager({ onBackToDashboard }) {
 
   const filteredStudents = students.filter(s => s.grade === selectedGrade && s.section === selectedSection);
 
-  const handleFileUpload = (e) => {
+  // رفع ملف Excel وحفظه في Firebase
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const workbook = XLSX.read(bstr, { type: 'binary' });
-      const sheetName = workbook.SheetNames[0]; 
-      const sheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(sheet);
-      
-      const formattedData = data.map((row, index) => {
-        const cleanRow = {};
-        for (let key in row) {
-          cleanRow[key.trim()] = row[key];
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: 'binary' });
+        const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+
+        const batch = writeBatch(db);
+        const newStudents = data.map((row) => {
+          const cleanRow = {};
+          for (let key in row) cleanRow[key.trim()] = row[key];
+          return {
+            name: cleanRow['اسم الطالب'] || cleanRow['الاسم'] || cleanRow['الاسم الرباعي'] || cleanRow['Name'] || 'غير مسجل',
+            grade: cleanRow['الصف'] || cleanRow['صف'] || cleanRow['Grade'] || 'غير محدد',
+            section: cleanRow['الشعبة'] || cleanRow['شعبة'] || cleanRow['Section'] || 'غير محدد',
+            s1_g1: '', s1_g2: '', s1_g3: '', s1_final: '', s1_notes: '',
+            s2_g1: '', s2_g2: '', s2_g3: '', s2_final: '', s2_makeup: '', s2_notes: ''
+          };
+        });
+
+        for (const student of newStudents) {
+          const newDocRef = doc(studentsCollectionRef);
+          batch.set(newDocRef, student);
         }
+        await batch.commit();
 
-        return {
-          id: new Date().getTime() + index,
-          name: cleanRow['اسم الطالب'] || cleanRow['الاسم'] || cleanRow['الاسم الرباعي'] || cleanRow['Name'] || 'غير مسجل',
-          grade: cleanRow['الصف'] || cleanRow['صف'] || cleanRow['Grade'] || 'غير محدد',
-          section: cleanRow['الشعبة'] || cleanRow['شعبة'] || cleanRow['Section'] || 'غير محدد',
-          // حقول الفصل الأول
-          s1_g1: '', s1_g2: '', s1_g3: '', s1_final: '', s1_notes: '',
-          // حقول الفصل الثاني
-          s2_g1: '', s2_g2: '', s2_g3: '', s2_final: '', s2_makeup: '', s2_notes: ''
-        };
-      });
-
-      const updatedStudents = [...students, ...formattedData];
-      setStudents(updatedStudents);
-      localStorage.setItem('school_students', JSON.stringify(updatedStudents));
+        // إعادة جلب البيانات من Firebase بدلاً من reload
+        const updated = await getDocs(studentsCollectionRef);
+        setStudents(updated.docs.map((d) => ({ ...d.data(), id: d.id })));
+      } catch (error) {
+        console.error("خطأ في رفع الملف:", error);
+        alert("حدث خطأ أثناء رفع الملف. تحقق من الاتصال بالإنترنت.");
+      }
     };
     reader.readAsBinaryString(file);
   };
 
-  const handleClearAll = () => {
-    if(window.confirm('⚠️ تحذير: هل أنت متأكد من مسح جميع بيانات وعلامات الطلاب؟')) {
-      setStudents([]);
-      localStorage.removeItem('school_students');
-      setActiveTab('manager');
+  // تحديث علامة طالب في Firebase
+  const handleUpdateStudentData = async (id, field, value) => {
+    try {
+      const studentDoc = doc(db, "students", id);
+      await updateDoc(studentDoc, { [field]: value });
+      setStudents(students.map(s => s.id === id ? { ...s, [field]: value } : s));
+    } catch (error) {
+      console.error("خطأ في تحديث البيانات:", error);
     }
   };
 
-  const handleUpdateStudentData = (id, field, value) => {
-    const updated = students.map(s => s.id === id ? { ...s, [field]: value } : s);
-    setStudents(updated);
-    localStorage.setItem('school_students', JSON.stringify(updated));
+  // حذف طالب من Firebase
+  const handleDeleteStudent = async (id) => {
+    if (window.confirm('هل أنت متأكد من حذف هذا الطالب من السحابة؟')) {
+      try {
+        await deleteDoc(doc(db, "students", id));
+        setStudents(students.filter(s => s.id !== id));
+      } catch (error) {
+        console.error("خطأ في الحذف:", error);
+        alert("حدث خطأ أثناء الحذف.");
+      }
+    }
   };
 
-  // دوال التعديل الفردي
-  const handleEditClick = (student) => {
-    setEditingId(student.id);
-    setEditFormData({ name: student.name, grade: student.grade, section: student.section });
-  };
-  const handleSaveEdit = (id) => {
-    const updated = students.map(s => s.id === id ? { ...s, name: editFormData.name, grade: editFormData.grade, section: editFormData.section } : s);
-    setStudents(updated);
-    localStorage.setItem('school_students', JSON.stringify(updated));
-    setEditingId(null);
-  };
-  const handleCancelEdit = () => setEditingId(null);
-  const handleDeleteStudent = (id) => {
-    if(window.confirm('هل أنت متأكد من حذف هذا الطالب من السجل؟')) {
-      const updated = students.filter(s => s.id !== id);
-      setStudents(updated);
-      localStorage.setItem('school_students', JSON.stringify(updated));
+  // حذف جميع الطلاب من Firebase
+  const handleClearAll = async () => {
+    if (window.confirm('⚠️ تحذير: هل أنت متأكد من مسح جميع بيانات وعلامات الطلاب من السحابة؟')) {
+      try {
+        const batch = writeBatch(db);
+        students.forEach(s => batch.delete(doc(db, "students", s.id)));
+        await batch.commit();
+        setStudents([]);
+        setActiveTab('manager');
+      } catch (error) {
+        console.error("خطأ في المسح الكامل:", error);
+        alert("حدث خطأ أثناء المسح.");
+      }
     }
   };
 
   return (
     <div className="manager-container" style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '24px', border: '2px solid #bae6fd', fontFamily: 'Cairo, sans-serif' }}>
-      
-      {/* ستايل الطباعة المُخصص لدفتر العلامات الرسمي */}
+
       <style>{`
         @media print {
-          @page {
-            size: A4 portrait;
-            margin: 10mm;
-          }
+          @page { size: A4 portrait; margin: 10mm; }
           body { background-color: #ffffff !important; -webkit-print-color-adjust: exact; }
           .no-print { display: none !important; }
           .manager-container { padding: 0 !important; border: none !important; }
-          
-          /* ترويسة الطباعة */
           .print-header { 
             display: flex !important; 
             justify-content: space-between !important; 
@@ -127,41 +141,26 @@ function StudentsManager({ onBackToDashboard }) {
             color: #000 !important; 
             margin-bottom: 10px !important;
           }
-          
-          /* تنسيق الجدول الرسمي للطباعة */
           table { border-collapse: collapse !important; width: 100% !important; border: 2px solid #000 !important; table-layout: fixed !important; }
           th, td { border: 1px solid #000 !important; color: #000 !important; font-size: 13px !important; text-align: center; }
           th { background-color: #f8fafc !important; }
-          
-          /* مربعات الإدخال أثناء الطباعة */
           input[type="number"], input[type="text"] {
             border: none !important; background: transparent !important; color: #000 !important;
             font-weight: bold; font-size: 13px !important; width: 100% !important; text-align: center; padding: 0 !important;
           }
           input::placeholder { color: transparent !important; }
         }
-
-        /* تنسيق الأعمدة العمودية (Vertical Text) */
         .vertical-text-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: space-between;
-          height: 100%;
+          display: flex; flex-direction: column; align-items: center;
+          justify-content: space-between; height: 100%;
         }
         .vertical-text {
-          writing-mode: vertical-rl;
-          text-orientation: mixed;
-          white-space: nowrap;
-          height: 120px; /* لضمان المساحة الكافية للكلمة */
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 13px;
+          writing-mode: vertical-rl; text-orientation: mixed;
+          white-space: nowrap; height: 120px;
+          display: flex; align-items: center; justify-content: center; font-size: 13px;
         }
         .header-letter { border-bottom: 1px solid #cbd5e1; width: 100%; padding: 4px 0; font-weight: bold; }
         .header-percent { border-top: 1px solid #cbd5e1; width: 100%; padding: 4px 0; font-size: 11px; }
-        
         @media print {
           .header-letter, .header-percent { border-color: #000 !important; }
         }
@@ -170,7 +169,7 @@ function StudentsManager({ onBackToDashboard }) {
         }
       `}</style>
 
-      {/* الترويسة العلوية وأزرار التنقل (تختفي في الطباعة) */}
+      {/* الترويسة العلوية */}
       <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #f0f9ff', paddingBottom: '20px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '32px' }}>{activeTab === 'manager' ? '👥' : '📓'}</span>
@@ -195,56 +194,70 @@ function StudentsManager({ onBackToDashboard }) {
         </div>
       </div>
 
-      {/* ------------------ شاشة إدارة الطلاب ------------------ */}
-      {activeTab === 'manager' && (
+      {/* شاشة التحميل */}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#0369a1', fontSize: '18px' }}>
+          ⏳ جاري تحميل البيانات من السحابة...
+        </div>
+      )}
+
+      {/* شاشة إدارة الطلاب */}
+      {!loading && activeTab === 'manager' && (
         <div className="no-print">
           <div style={{ backgroundColor: '#f0f9ff', padding: '24px', borderRadius: '16px', border: '1px dashed #0284c7', marginBottom: '24px', display: 'flex', gap: '20px', alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <strong style={{ color: '#0369a1', fontSize: '18px', display: 'block', marginBottom: '8px' }}>📥 رفع ملف أسماء الطلاب (Excel)</strong>
+              <p style={{ color: '#64748b', fontSize: '13px', margin: '0 0 8px' }}>يجب أن يحتوي الملف على أعمدة: <strong>اسم الطالب</strong> و<strong>الصف</strong> و<strong>الشعبة</strong></p>
               <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} style={{ display: 'block', marginTop: '10px', fontFamily: 'Cairo', cursor: 'pointer' }} />
             </div>
-            <div style={{ backgroundColor: '#e0f2fe', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd', textAlign: 'center', minWidth: '150px' }}>
-              <span style={{ display: 'block', fontSize: '24px', fontWeight: 'bold', color: '#0284c7' }}>{students.length}</span>
-              <span style={{ fontSize: '14px', color: '#0369a1', fontWeight: 'bold' }}>طالب مسجل</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+              <div style={{ backgroundColor: '#e0f2fe', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd', textAlign: 'center', minWidth: '150px' }}>
+                <span style={{ display: 'block', fontSize: '24px', fontWeight: 'bold', color: '#0284c7' }}>{students.length}</span>
+                <span style={{ fontSize: '14px', color: '#0369a1', fontWeight: 'bold' }}>طالب مسجل في السحابة ☁️</span>
+              </div>
+              {students.length > 0 && (
+                <button onClick={handleClearAll} style={{ backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', fontSize: '13px' }}>
+                  🗑️ مسح جميع البيانات
+                </button>
+              )}
             </div>
           </div>
-          {/* جدول الطلاب (مختصر في هذا الكود للتركيز على العلامات) */}
+
           {students.length > 0 && (
             <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
-                  <thead style={{ backgroundColor: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                    <tr>
-                      <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>م</th>
-                      <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>اسم الطالب</th>
-                      <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الصف</th>
-                      <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الشعبة</th>
-                      <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1', textAlign: 'center' }}>إجراءات</th>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
+                <thead style={{ backgroundColor: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <tr>
+                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>م</th>
+                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>اسم الطالب</th>
+                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الصف</th>
+                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الشعبة</th>
+                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1', textAlign: 'center' }}>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student, idx) => (
+                    <tr key={student.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '12px 14px' }}>{idx + 1}</td>
+                      <td style={{ padding: '12px 14px', fontWeight: 'bold' }}>{student.name}</td>
+                      <td style={{ padding: '12px 14px' }}>{student.grade}</td>
+                      <td style={{ padding: '12px 14px' }}>{student.section}</td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <button onClick={() => handleDeleteStudent(student.id)} style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '4px 8px', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer', fontFamily: 'Cairo' }}>حذف</button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((student, idx) => (
-                      <tr key={student.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px 14px' }}>{idx + 1}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: 'bold' }}>{student.name}</td>
-                        <td style={{ padding: '12px 14px' }}>{student.grade}</td>
-                        <td style={{ padding: '12px 14px' }}>{student.section}</td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <button onClick={() => handleDeleteStudent(student.id)} style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '4px 8px', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>حذف</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
       )}
 
-      {/* ------------------ شاشة دفتر العلامات الرسمي ------------------ */}
-      {activeTab === 'gradebook' && (
+      {/* شاشة دفتر العلامات */}
+      {!loading && activeTab === 'gradebook' && (
         <div style={{ animation: 'fadeIn 0.3s' }}>
-          
-          {/* الترويسة المخصصة للطباعة فقط */}
+
           <div className="print-header">
             <div>الصف : {selectedGrade}</div>
             <div>الشعبة ( {selectedSection} )</div>
@@ -280,7 +293,6 @@ function StudentsManager({ onBackToDashboard }) {
                   <tr>
                     <th style={{ width: '4%', padding: '4px' }}>الرقم المتسلسل</th>
                     <th style={{ width: '22%', padding: '4px' }}>الاســـــــــــــــــم</th>
-                    
                     {activeSemester === 's1' ? (
                       <>
                         <th style={{ width: '8%', padding: 0 }}>
@@ -359,7 +371,7 @@ function StudentsManager({ onBackToDashboard }) {
                         </th>
                         <th style={{ width: '7%', padding: 0 }}>
                           <div className="vertical-text-container">
-                            <div className="header-letter" style={{fontSize:'10px'}}>هـ + ي / 2</div>
+                            <div className="header-letter" style={{ fontSize: '10px' }}>هـ + ي / 2</div>
                             <div className="vertical-text">النتيجة السنوية</div>
                             <div className="header-percent">100%</div>
                           </div>
@@ -378,37 +390,33 @@ function StudentsManager({ onBackToDashboard }) {
                 </thead>
                 <tbody>
                   {filteredStudents.map((student, idx) => {
-                    // حسابات الفصل الأول
                     const s1Total = (parseFloat(student.s1_g1) || 0) + (parseFloat(student.s1_g2) || 0) + (parseFloat(student.s1_g3) || 0) + (parseFloat(student.s1_final) || 0);
-                    // حسابات الفصل الثاني
                     const s2Total = (parseFloat(student.s2_g1) || 0) + (parseFloat(student.s2_g2) || 0) + (parseFloat(student.s2_g3) || 0) + (parseFloat(student.s2_final) || 0);
-                    // النتيجة السنوية
                     const annualResult = (s1Total > 0 && s2Total > 0) ? Math.round((s1Total + s2Total) / 2) : '-';
 
                     return (
                       <tr key={student.id} style={{ borderBottom: '1px solid #cbd5e1' }}>
                         <td style={{ padding: '8px' }}>{idx + 1}</td>
                         <td style={{ padding: '8px 10px', fontWeight: 'bold', textAlign: 'right' }}>{student.name}</td>
-                        
                         {activeSemester === 's1' ? (
                           <>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g1 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g1', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g2 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g2', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g3 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g3', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s1_final || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_final', e.target.value)} style={{ padding: '8px' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g1 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g1', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g2 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g2', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s1_g3 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_g3', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s1_final || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_final', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
                             <td style={{ padding: '8px', fontWeight: 'bold' }}>{s1Total > 0 ? s1Total : ''}</td>
-                            <td style={{ padding: 0 }}><input type="text" value={student.s1_notes || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_notes', e.target.value)} style={{ padding: '8px', textAlign: 'right' }} /></td>
+                            <td style={{ padding: 0 }}><input type="text" value={student.s1_notes || ''} onChange={(e) => handleUpdateStudentData(student.id, 's1_notes', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'right', fontFamily: 'Cairo' }} /></td>
                           </>
                         ) : (
                           <>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g1 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g1', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g2 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g2', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g3 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g3', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s2_final || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_final', e.target.value)} style={{ padding: '8px' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g1 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g1', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g2 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g2', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s2_g3 || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_g3', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s2_final || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_final', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
                             <td style={{ padding: '8px', fontWeight: 'bold' }}>{s2Total > 0 ? s2Total : ''}</td>
                             <td style={{ padding: '8px', fontWeight: 'bold', backgroundColor: '#f8fafc' }}>{annualResult}</td>
-                            <td style={{ padding: 0 }}><input type="number" value={student.s2_makeup || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_makeup', e.target.value)} style={{ padding: '8px' }} /></td>
-                            <td style={{ padding: 0 }}><input type="text" value={student.s2_notes || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_notes', e.target.value)} style={{ padding: '8px', textAlign: 'right' }} /></td>
+                            <td style={{ padding: 0 }}><input type="number" value={student.s2_makeup || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_makeup', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'center', fontFamily: 'Cairo' }} /></td>
+                            <td style={{ padding: 0 }}><input type="text" value={student.s2_notes || ''} onChange={(e) => handleUpdateStudentData(student.id, 's2_notes', e.target.value)} style={{ width: '100%', padding: '8px', border: 'none', textAlign: 'right', fontFamily: 'Cairo' }} /></td>
                           </>
                         )}
                       </tr>
@@ -424,7 +432,6 @@ function StudentsManager({ onBackToDashboard }) {
           )}
         </div>
       )}
-
     </div>
   );
 }
