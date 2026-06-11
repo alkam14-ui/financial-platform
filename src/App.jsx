@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import curriculumIndex from './data/curriculum_index.json';
 import lessonDataL1 from './data/curriculum_g7_s1.json';
+import lessonDataL2 from './data/g7_s1_u1_l2.json';
 
 import Navbar from './components/Navbar.jsx';
 import LessonView from './pages/LessonView.jsx';
@@ -128,6 +129,8 @@ function App() {
     setSelectedLesson(lesson.lesson_id);
     if (lesson.lesson_id === 'g7_s1_u1_l1' || lesson.id === 'g7_s1_u1_l1') {
       setActiveLessonData(lessonDataL1.lesson);
+    } else if (lesson.lesson_id === 'g7_s1_u1_l2' || lesson.id === 'g7_s1_u1_l2') {
+      setActiveLessonData(lessonDataL2.lesson);
     } else {
       setActiveLessonData({
         lesson_title: lesson.lesson_title,

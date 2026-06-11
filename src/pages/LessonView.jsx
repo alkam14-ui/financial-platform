@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import TemplateLessonView from '../components/lessons/TemplateLessonView.jsx';
 
 // مخزن الأنشطة البديلة
 const shapesActivitiesPool = [
@@ -79,6 +80,17 @@ function LessonView({ lessonData, teacherName, onBackToDashboard }) {
     35: { explore: 5, concepts: 5, shapes: 10, distinction: 5, activities: 10 }
   };
   const currentTimes = timeAllocation[classDuration];
+  const isTemplateLesson = Boolean(lessonData?.['نتاجات التعلم'] || lessonData?.['أتعلم']);
+
+  if (isTemplateLesson) {
+    return (
+      <TemplateLessonView
+        lessonData={lessonData}
+        teacherName={teacherName}
+        onBackToDashboard={onBackToDashboard}
+      />
+    );
+  }
 
   // --------------------------------------------------------------------------------
   // شاشة خطة الدرس اليومية
