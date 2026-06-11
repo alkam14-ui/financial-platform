@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, writeBatch } from 'firebase/firestore';
 
 function StudentsManager({ onBackToDashboard }) {
   const [students, setStudents] = useState([]);
@@ -10,8 +10,13 @@ function StudentsManager({ onBackToDashboard }) {
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [loading, setLoading] = useState(true);
+  const [listName, setListName] = useState('');
+  const [selectedListId, setSelectedListId] = useState('');
+  const [editingList, setEditingList] = useState(false);
 
   const studentsCollectionRef = collection(db, "students");
+  const legacyListId = 'legacy-list';
+  const getStudentListId = (student) => student.listId || legacyListId;
 
   // جلب البيانات من Firebase عند تحميل الشاشة
   useEffect(() => {
@@ -31,6 +36,22 @@ function StudentsManager({ onBackToDashboard }) {
 
   const uniqueGrades = [...new Set(students.map(s => s.grade))].filter(Boolean);
   const uniqueSections = [...new Set(students.filter(s => s.grade === selectedGrade).map(s => s.section))].filter(Boolean);
+  const studentLists = Array.from(
+    students.reduce((map, student) => {
+      const id = getStudentListId(student);
+      const existing = map.get(id) || {
+        id,
+        name: student.listName || 'قائمة الطلاب القديمة',
+        count: 0,
+        uploadedAt: student.uploadedAt || ''
+      };
+      existing.count += 1;
+      map.set(id, existing);
+      return map;
+    }, new Map()).values()
+  ).sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+  const selectedList = studentLists.find((list) => list.id === selectedListId);
+  const selectedListStudents = students.filter((student) => getStudentListId(student) === selectedListId);
 
   useEffect(() => {
     if (uniqueGrades.length > 0 && !uniqueGrades.includes(selectedGrade)) setSelectedGrade(uniqueGrades[0]);
@@ -40,12 +61,29 @@ function StudentsManager({ onBackToDashboard }) {
     if (uniqueSections.length > 0 && !uniqueSections.includes(selectedSection)) setSelectedSection(uniqueSections[0]);
   }, [selectedGrade, uniqueSections, selectedSection]);
 
+  useEffect(() => {
+    if (studentLists.length > 0 && !studentLists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(studentLists[0].id);
+    }
+    if (studentLists.length === 0) {
+      setSelectedListId('');
+      setEditingList(false);
+    }
+  }, [studentLists, selectedListId]);
+
   const filteredStudents = students.filter(s => s.grade === selectedGrade && s.section === selectedSection);
 
   // رفع ملف Excel وحفظه في Firebase
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const trimmedListName = listName.trim();
+
+    if (!trimmedListName) {
+      alert('يرجى كتابة اسم القائمة قبل رفع الملف.');
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -55,10 +93,15 @@ function StudentsManager({ onBackToDashboard }) {
         const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
         const batch = writeBatch(db);
+        const newListId = `${Date.now()}`;
+        const uploadedAt = new Date().toISOString();
         const newStudents = data.map((row) => {
           const cleanRow = {};
           for (let key in row) cleanRow[key.trim()] = row[key];
           return {
+            listId: newListId,
+            listName: trimmedListName,
+            uploadedAt,
             name: cleanRow['اسم الطالب'] || cleanRow['الاسم'] || cleanRow['الاسم الرباعي'] || cleanRow['Name'] || 'غير مسجل',
             grade: cleanRow['الصف'] || cleanRow['صف'] || cleanRow['Grade'] || 'غير محدد',
             section: cleanRow['الشعبة'] || cleanRow['شعبة'] || cleanRow['Section'] || 'غير محدد',
@@ -67,15 +110,18 @@ function StudentsManager({ onBackToDashboard }) {
           };
         });
 
+        const studentsWithIds = [];
         for (const student of newStudents) {
           const newDocRef = doc(studentsCollectionRef);
+          studentsWithIds.push({ ...student, id: newDocRef.id });
           batch.set(newDocRef, student);
         }
         await batch.commit();
 
-        // إعادة جلب البيانات من Firebase بدلاً من reload
-        const updated = await getDocs(studentsCollectionRef);
-        setStudents(updated.docs.map((d) => ({ ...d.data(), id: d.id })));
+        setStudents([...students, ...studentsWithIds]);
+        setSelectedListId(newListId);
+        setListName('');
+        e.target.value = '';
       } catch (error) {
         console.error("خطأ في رفع الملف:", error);
         alert("حدث خطأ أثناء رفع الملف. تحقق من الاتصال بالإنترنت.");
@@ -95,31 +141,19 @@ function StudentsManager({ onBackToDashboard }) {
     }
   };
 
-  // حذف طالب من Firebase
-  const handleDeleteStudent = async (id) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا الطالب من السحابة؟')) {
-      try {
-        await deleteDoc(doc(db, "students", id));
-        setStudents(students.filter(s => s.id !== id));
-      } catch (error) {
-        console.error("خطأ في الحذف:", error);
-        alert("حدث خطأ أثناء الحذف.");
-      }
-    }
-  };
-
-  // حذف جميع الطلاب من Firebase
-  const handleClearAll = async () => {
-    if (window.confirm('⚠️ تحذير: هل أنت متأكد من مسح جميع بيانات وعلامات الطلاب من السحابة؟')) {
+  const handleDeleteList = async (list) => {
+    if (window.confirm(`⚠️ هل أنت متأكد من حذف قائمة "${list.name}"؟ سيتم حذف ${list.count} طالب/طالبة من هذه القائمة.`)) {
       try {
         const batch = writeBatch(db);
-        students.forEach(s => batch.delete(doc(db, "students", s.id)));
+        students
+          .filter((student) => getStudentListId(student) === list.id)
+          .forEach((student) => batch.delete(doc(db, "students", student.id)));
         await batch.commit();
-        setStudents([]);
-        setActiveTab('manager');
+        setStudents(students.filter((student) => getStudentListId(student) !== list.id));
+        setEditingList(false);
       } catch (error) {
-        console.error("خطأ في المسح الكامل:", error);
-        alert("حدث خطأ أثناء المسح.");
+        console.error("خطأ في حذف القائمة:", error);
+        alert("حدث خطأ أثناء حذف القائمة.");
       }
     }
   };
@@ -166,6 +200,13 @@ function StudentsManager({ onBackToDashboard }) {
         }
         @media screen {
           .print-header { display: none !important; }
+          .print-only { display: none !important; }
+        }
+        @media print {
+          .students-list-print { display: block !important; }
+          .students-list-print table { margin-top: 8px !important; }
+          .students-list-print h3 { color: #000 !important; margin: 0 0 8px !important; }
+          .print-only { display: block !important; }
         }
       `}</style>
 
@@ -203,52 +244,109 @@ function StudentsManager({ onBackToDashboard }) {
 
       {/* شاشة إدارة الطلاب */}
       {!loading && activeTab === 'manager' && (
-        <div className="no-print">
-          <div style={{ backgroundColor: '#f0f9ff', padding: '24px', borderRadius: '16px', border: '1px dashed #0284c7', marginBottom: '24px', display: 'flex', gap: '20px', alignItems: 'center' }}>
+        <div>
+          <div className="no-print" style={{ backgroundColor: '#f0f9ff', padding: '24px', borderRadius: '16px', border: '1px dashed #0284c7', marginBottom: '24px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>
               <strong style={{ color: '#0369a1', fontSize: '18px', display: 'block', marginBottom: '8px' }}>📥 رفع ملف أسماء الطلاب (Excel)</strong>
               <p style={{ color: '#64748b', fontSize: '13px', margin: '0 0 8px' }}>يجب أن يحتوي الملف على أعمدة: <strong>اسم الطالب</strong> و<strong>الصف</strong> و<strong>الشعبة</strong></p>
+              <input
+                type="text"
+                value={listName}
+                onChange={(event) => setListName(event.target.value)}
+                placeholder="اكتب اسم القائمة، مثال: الصف السابع أ"
+                style={{ width: '100%', maxWidth: '420px', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontFamily: 'Cairo', marginBottom: '10px' }}
+              />
               <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} style={{ display: 'block', marginTop: '10px', fontFamily: 'Cairo', cursor: 'pointer' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
               <div style={{ backgroundColor: '#e0f2fe', padding: '16px', borderRadius: '12px', border: '1px solid #bae6fd', textAlign: 'center', minWidth: '150px' }}>
-                <span style={{ display: 'block', fontSize: '24px', fontWeight: 'bold', color: '#0284c7' }}>{students.length}</span>
-                <span style={{ fontSize: '14px', color: '#0369a1', fontWeight: 'bold' }}>طالب مسجل في السحابة ☁️</span>
+                <span style={{ display: 'block', fontSize: '24px', fontWeight: 'bold', color: '#0284c7' }}>{studentLists.length}</span>
+                <span style={{ fontSize: '14px', color: '#0369a1', fontWeight: 'bold' }}>قائمة محفوظة ☁️</span>
               </div>
-              {students.length > 0 && (
-                <button onClick={handleClearAll} style={{ backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'Cairo', fontSize: '13px' }}>
-                  🗑️ مسح جميع البيانات
-                </button>
-              )}
             </div>
           </div>
 
-          {students.length > 0 && (
-            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
-                <thead style={{ backgroundColor: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                  <tr>
-                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>م</th>
-                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>اسم الطالب</th>
-                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الصف</th>
-                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1' }}>الشعبة</th>
-                    <th style={{ padding: '14px', borderBottom: '2px solid #cbd5e1', textAlign: 'center' }}>إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((student, idx) => (
-                    <tr key={student.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '12px 14px' }}>{idx + 1}</td>
-                      <td style={{ padding: '12px 14px', fontWeight: 'bold' }}>{student.name}</td>
-                      <td style={{ padding: '12px 14px' }}>{student.grade}</td>
-                      <td style={{ padding: '12px 14px' }}>{student.section}</td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        <button onClick={() => handleDeleteStudent(student.id)} style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '4px 8px', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer', fontFamily: 'Cairo' }}>حذف</button>
-                      </td>
+          {studentLists.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 320px) 1fr', gap: '20px', alignItems: 'start' }}>
+              <div className="no-print" style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                <div style={{ backgroundColor: '#f8fafc', padding: '14px', fontWeight: '900', color: '#0369a1', borderBottom: '1px solid #e2e8f0' }}>
+                  القوائم المرفوعة
+                </div>
+                {studentLists.map((list) => (
+                  <div key={list.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '10px', borderBottom: '1px solid #f1f5f9', backgroundColor: selectedListId === list.id ? '#e0f2fe' : '#fff' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedListId(list.id); setEditingList(false); }}
+                      style={{ flex: 1, textAlign: 'right', background: 'transparent', border: 0, cursor: 'pointer', fontFamily: 'Cairo', color: '#0f172a' }}
+                    >
+                      <strong style={{ display: 'block', color: '#0369a1' }}>{list.name}</strong>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>{list.count} طالب/طالبة</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteList(list)}
+                      style={{ backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="students-list-print" style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px', overflowX: 'auto' }}>
+                <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#0369a1', fontSize: '22px' }}>{selectedList?.name || 'قائمة الطلاب'}</h3>
+                    <span style={{ color: '#64748b', fontSize: '13px' }}>{selectedListStudents.length} طالب/طالبة</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={() => window.print()} style={{ backgroundColor: '#10b981', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
+                      طباعة
+                    </button>
+                    <button type="button" onClick={() => setEditingList(!editingList)} style={{ backgroundColor: editingList ? '#f97316' : '#0284c7', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
+                      {editingList ? 'إنهاء التحرير' : 'تحرير'}
+                    </button>
+                  </div>
+                </div>
+
+                <h3 className="print-only">{selectedList?.name || 'قائمة الطلاب'}</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
+                  <thead style={{ backgroundColor: '#f8fafc' }}>
+                    <tr>
+                      <th style={{ padding: '12px', borderBottom: '2px solid #cbd5e1', width: '70px' }}>م</th>
+                      <th style={{ padding: '12px', borderBottom: '2px solid #cbd5e1' }}>اسم الطالب</th>
+                      <th style={{ padding: '12px', borderBottom: '2px solid #cbd5e1', width: '140px' }}>الصف</th>
+                      <th style={{ padding: '12px', borderBottom: '2px solid #cbd5e1', width: '140px' }}>الشعبة</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {selectedListStudents.map((student, idx) => (
+                      <tr key={student.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 12px' }}>{idx + 1}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>
+                          {editingList ? (
+                            <input type="text" value={student.name || ''} onChange={(event) => handleUpdateStudentData(student.id, 'name', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                          ) : student.name}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {editingList ? (
+                            <input type="text" value={student.grade || ''} onChange={(event) => handleUpdateStudentData(student.id, 'grade', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                          ) : student.grade}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {editingList ? (
+                            <input type="text" value={student.section || ''} onChange={(event) => handleUpdateStudentData(student.id, 'section', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                          ) : student.section}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="no-print" style={{ textAlign: 'center', padding: '30px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', color: '#64748b' }}>
+              لا توجد قوائم طلاب مرفوعة حتى الآن.
             </div>
           )}
         </div>
