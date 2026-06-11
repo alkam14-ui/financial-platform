@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
-import { collection, getDocs, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, query, updateDoc, where, writeBatch } from 'firebase/firestore';
 
-function StudentsManager({ onBackToDashboard }) {
+function StudentsManager({ teacherId, onBackToDashboard }) {
   const [students, setStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('manager'); 
   const [activeSemester, setActiveSemester] = useState('s1');
@@ -22,9 +22,15 @@ function StudentsManager({ onBackToDashboard }) {
   // جلب البيانات من Firebase عند تحميل الشاشة
   useEffect(() => {
     const fetchStudents = async () => {
+      if (!teacherId) {
+        setStudents([]);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
-        const data = await getDocs(studentsCollectionRef);
+        const data = await getDocs(query(studentsCollectionRef, where('teacherId', '==', teacherId)));
         setStudents(data.docs.map((d) => ({ ...d.data(), id: d.id })));
       } catch (error) {
         console.error("خطأ في جلب البيانات من فايربيس:", error);
@@ -33,7 +39,7 @@ function StudentsManager({ onBackToDashboard }) {
       }
     };
     fetchStudents();
-  }, []);
+  }, [teacherId]);
 
   const uniqueGrades = [...new Set(students.map(s => s.grade))].filter(Boolean);
   const uniqueSections = [...new Set(students.filter(s => s.grade === selectedGrade).map(s => s.section))].filter(Boolean);
@@ -81,6 +87,12 @@ function StudentsManager({ onBackToDashboard }) {
     if (!file) return;
     const trimmedListName = listName.trim();
 
+    if (!teacherId) {
+      alert('يرجى تسجيل الدخول قبل رفع قوائم الطلاب.');
+      e.target.value = '';
+      return;
+    }
+
     if (!trimmedListName) {
       alert('يرجى كتابة اسم القائمة قبل رفع الملف.');
       e.target.value = '';
@@ -103,6 +115,7 @@ function StudentsManager({ onBackToDashboard }) {
           return {
             listId: newListId,
             listName: trimmedListName,
+            teacherId,
             uploadedAt,
             name: cleanRow['اسم الطالب'] || cleanRow['الاسم'] || cleanRow['الاسم الرباعي'] || cleanRow['Name'] || 'غير مسجل',
             grade: cleanRow['الصف'] || cleanRow['صف'] || cleanRow['Grade'] || 'غير محدد',

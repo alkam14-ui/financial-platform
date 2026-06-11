@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
-import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 
 function ExamsManager({
+  teacherId,
   teacherName,
   schoolName,
   directorateName,
@@ -109,8 +110,13 @@ function ExamsManager({
 
   useEffect(() => {
     const fetchSavedExamModels = async () => {
+      if (!teacherId) {
+        setSavedExamModels([]);
+        return;
+      }
+
       try {
-        const snapshot = await getDocs(examModelsCollectionRef);
+        const snapshot = await getDocs(query(examModelsCollectionRef, where('teacherId', '==', teacherId)));
         const models = snapshot.docs
           .map((examDoc) => ({ ...examDoc.data(), id: examDoc.id }))
           .sort((a, b) => String(b.createdAtText || '').localeCompare(String(a.createdAtText || '')));
@@ -121,7 +127,7 @@ function ExamsManager({
     };
 
     fetchSavedExamModels();
-  }, []);
+  }, [teacherId]);
 
   const handleConfigChange = (field, value) => {
     setExamConfig((previous) => ({ ...previous, [field]: parseInt(value) || 0 }));
@@ -222,12 +228,17 @@ function ExamsManager({
   const handleSaveExamModel = async () => {
     const modelToSave = editingExam ? examDraft : generatedExam;
     if (!modelToSave) return;
+    if (!teacherId) {
+      alert('يرجى تسجيل الدخول قبل حفظ نموذج الامتحان.');
+      return;
+    }
 
     try {
       setSavingExam(true);
       const payload = {
         title: modelToSave.title,
         model: modelToSave,
+        teacherId,
         teacherName,
         schoolName,
         directorateName,

@@ -443,6 +443,7 @@ function App() {
           </div>
           <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
             <ExamsManager 
+              teacherId={currentUser?.uid}
               teacherName={teacherName} 
               schoolName={schoolName} 
               directorateName={directorateName} 
@@ -461,7 +462,7 @@ function App() {
             <Navbar teacherName={teacherName} schoolName={schoolName} directorateName={directorateName} onLogout={handleLogout} />
           </div>
           <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-            <StudentsManager onBackToDashboard={() => setNavigationPage('dashboard')} />
+            <StudentsManager teacherId={currentUser?.uid} onBackToDashboard={() => setNavigationPage('dashboard')} />
           </div>
         </>
       )}
