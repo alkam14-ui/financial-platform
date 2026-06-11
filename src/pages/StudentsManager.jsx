@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
 import { collection, getDocs, doc, updateDoc, writeBatch } from 'firebase/firestore';
@@ -13,6 +13,7 @@ function StudentsManager({ onBackToDashboard }) {
   const [listName, setListName] = useState('');
   const [selectedListId, setSelectedListId] = useState('');
   const [editingList, setEditingList] = useState(false);
+  const [editingDrafts, setEditingDrafts] = useState({});
 
   const studentsCollectionRef = collection(db, "students");
   const legacyListId = 'legacy-list';
@@ -36,7 +37,7 @@ function StudentsManager({ onBackToDashboard }) {
 
   const uniqueGrades = [...new Set(students.map(s => s.grade))].filter(Boolean);
   const uniqueSections = [...new Set(students.filter(s => s.grade === selectedGrade).map(s => s.section))].filter(Boolean);
-  const studentLists = Array.from(
+  const studentLists = useMemo(() => Array.from(
     students.reduce((map, student) => {
       const id = getStudentListId(student);
       const existing = map.get(id) || {
@@ -49,7 +50,7 @@ function StudentsManager({ onBackToDashboard }) {
       map.set(id, existing);
       return map;
     }, new Map()).values()
-  ).sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+  ).sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt))), [students]);
   const selectedList = studentLists.find((list) => list.id === selectedListId);
   const selectedListStudents = students.filter((student) => getStudentListId(student) === selectedListId);
 
@@ -69,6 +70,7 @@ function StudentsManager({ onBackToDashboard }) {
       setSelectedListId('');
       setEditingList(false);
     }
+    setEditingDrafts({});
   }, [studentLists, selectedListId]);
 
   const filteredStudents = students.filter(s => s.grade === selectedGrade && s.section === selectedSection);
@@ -156,6 +158,67 @@ function StudentsManager({ onBackToDashboard }) {
         alert("حدث خطأ أثناء حذف القائمة.");
       }
     }
+  };
+
+  const handleStartListEdit = () => {
+    const drafts = {};
+    selectedListStudents.forEach((student) => {
+      drafts[student.id] = {
+        name: student.name || '',
+        grade: student.grade || '',
+        section: student.section || ''
+      };
+    });
+    setEditingDrafts(drafts);
+    setEditingList(true);
+  };
+
+  const handleDraftStudentChange = (studentId, field, value) => {
+    setEditingDrafts((previous) => ({
+      ...previous,
+      [studentId]: {
+        ...(previous[studentId] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSaveListEdits = async () => {
+    try {
+      const batch = writeBatch(db);
+      const changedStudents = selectedListStudents.filter((student) => {
+        const draft = editingDrafts[student.id];
+        return draft && (draft.name !== student.name || draft.grade !== student.grade || draft.section !== student.section);
+      });
+
+      changedStudents.forEach((student) => {
+        const draft = editingDrafts[student.id];
+        batch.update(doc(db, "students", student.id), {
+          name: draft.name,
+          grade: draft.grade,
+          section: draft.section
+        });
+      });
+
+      if (changedStudents.length > 0) {
+        await batch.commit();
+        setStudents(students.map((student) => {
+          const draft = editingDrafts[student.id];
+          return draft ? { ...student, name: draft.name, grade: draft.grade, section: draft.section } : student;
+        }));
+      }
+
+      setEditingList(false);
+      setEditingDrafts({});
+    } catch (error) {
+      console.error("خطأ في حفظ تعديلات القائمة:", error);
+      alert("حدث خطأ أثناء حفظ التعديلات.");
+    }
+  };
+
+  const handleCancelListEdits = () => {
+    setEditingList(false);
+    setEditingDrafts({});
   };
 
   return (
@@ -303,9 +366,20 @@ function StudentsManager({ onBackToDashboard }) {
                     <button type="button" onClick={() => window.print()} style={{ backgroundColor: '#10b981', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
                       طباعة
                     </button>
-                    <button type="button" onClick={() => setEditingList(!editingList)} style={{ backgroundColor: editingList ? '#f97316' : '#0284c7', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
-                      {editingList ? 'إنهاء التحرير' : 'تحرير'}
-                    </button>
+                    {editingList ? (
+                      <>
+                        <button type="button" onClick={handleSaveListEdits} style={{ backgroundColor: '#0284c7', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
+                          حفظ
+                        </button>
+                        <button type="button" onClick={handleCancelListEdits} style={{ backgroundColor: '#f97316', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
+                          تراجع
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={handleStartListEdit} style={{ backgroundColor: '#0284c7', color: '#fff', border: 0, padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Cairo', fontWeight: 'bold' }}>
+                        تحرير
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -325,17 +399,17 @@ function StudentsManager({ onBackToDashboard }) {
                         <td style={{ padding: '10px 12px' }}>{idx + 1}</td>
                         <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>
                           {editingList ? (
-                            <input type="text" value={student.name || ''} onChange={(event) => handleUpdateStudentData(student.id, 'name', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                            <input type="text" value={editingDrafts[student.id]?.name || ''} onChange={(event) => handleDraftStudentChange(student.id, 'name', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
                           ) : student.name}
                         </td>
                         <td style={{ padding: '10px 12px' }}>
                           {editingList ? (
-                            <input type="text" value={student.grade || ''} onChange={(event) => handleUpdateStudentData(student.id, 'grade', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                            <input type="text" value={editingDrafts[student.id]?.grade || ''} onChange={(event) => handleDraftStudentChange(student.id, 'grade', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
                           ) : student.grade}
                         </td>
                         <td style={{ padding: '10px 12px' }}>
                           {editingList ? (
-                            <input type="text" value={student.section || ''} onChange={(event) => handleUpdateStudentData(student.id, 'section', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
+                            <input type="text" value={editingDrafts[student.id]?.section || ''} onChange={(event) => handleDraftStudentChange(student.id, 'section', event.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'Cairo' }} />
                           ) : student.section}
                         </td>
                       </tr>
