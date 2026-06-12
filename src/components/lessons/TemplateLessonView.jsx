@@ -44,6 +44,8 @@ function TemplateLessonView({ lessonData, teacherName, onBackToDashboard }) {
   const answers = getValue(lessonData, 'الإجابات النموذجية', {});
   const teacherNotes = getValue(lessonData, 'ملاحظات المعلم', []);
   const resources = getValue(lessonData, 'روابط أو ملفات مساعدة', []);
+  const hasItems = (items) => Array.isArray(items) && items.length > 0;
+  const hasObjectContent = (item) => Boolean(item && Object.keys(item).length > 0);
 
   return (
     <div dir="rtl" style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'Cairo, sans-serif', color: '#1e293b' }}>
@@ -71,30 +73,37 @@ function TemplateLessonView({ lessonData, teacherName, onBackToDashboard }) {
           {teacherName && <p style={{ margin: '10px 0 0', opacity: 0.9 }}>المعلم: {teacherName}</p>}
         </section>
 
-        <Section title="نتاجات التعلم">
-          <TextList items={outcomes} />
-        </Section>
+        {hasItems(outcomes) && (
+          <Section title="نتاجات التعلم">
+            <TextList items={outcomes} />
+          </Section>
+        )}
 
-        <Section title="المفاهيم والمصطلحات" tone="#1d4ed8">
-          <InfoGrid items={terms} />
-        </Section>
+        {hasItems(terms) && (
+          <Section title="المفاهيم والمصطلحات" tone="#1d4ed8">
+            <InfoGrid items={terms} />
+          </Section>
+        )}
 
-        <Section title="استكشف" tone="#b45309">
-          <p style={{ lineHeight: 1.9, marginTop: 0 }}>{explore.context}</p>
-          <TextList items={explore.discussion_prompts} />
-          {explore.teacher_move && (
-            <div style={{ marginTop: '14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px', lineHeight: 1.8 }}>
-              <strong>دور المعلم: </strong>{explore.teacher_move}
-            </div>
-          )}
-        </Section>
+        {hasObjectContent(explore) && (
+          <Section title="استكشف" tone="#b45309">
+            <p style={{ lineHeight: 1.9, marginTop: 0, whiteSpace: 'pre-line' }}>{explore.context}</p>
+            <TextList items={explore.discussion_prompts} />
+            {explore.teacher_move && (
+              <div style={{ marginTop: '14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px', lineHeight: 1.8 }}>
+                <strong>دور المعلم: </strong>{explore.teacher_move}
+              </div>
+            )}
+          </Section>
+        )}
 
+        {(learn.main_idea || hasItems(learn.sections) || learn.applied_example) && (
         <Section title="أتعلم" tone="#047857">
           {learn.main_idea && <p style={{ lineHeight: 1.9, marginTop: 0, fontWeight: 'bold' }}>{learn.main_idea}</p>}
           {learn.sections?.map((section, index) => (
             <article key={`${section.title}-${index}`} style={{ borderTop: index ? '1px solid #e2e8f0' : 0, paddingTop: index ? '14px' : 0, marginTop: index ? '14px' : 0 }}>
               <h3 style={{ color: '#065f46', margin: '0 0 8px' }}>{section.title}</h3>
-              <p style={{ lineHeight: 1.9, margin: 0 }}>{section.content}</p>
+              <p style={{ lineHeight: 1.9, margin: 0, whiteSpace: 'pre-line' }}>{section.content}</p>
               <TextList items={section.examples} />
               {section.teacher_note && <p style={{ margin: '8px 0 0', color: '#475569' }}><strong>ملاحظة: </strong>{section.teacher_note}</p>}
             </article>
@@ -108,54 +117,67 @@ function TemplateLessonView({ lessonData, teacherName, onBackToDashboard }) {
             </div>
           )}
         </Section>
+        )}
 
-        <Section title="نشاط صفي" tone="#7c3aed">
-          <h3 style={{ marginTop: 0 }}>{activity.title}</h3>
-          <p><strong>طريقة العمل: </strong>{activity.grouping}</p>
-          <TextList items={activity.steps} />
-          {activity.expected_output && <p style={{ marginBottom: 0 }}><strong>الناتج المتوقع: </strong>{activity.expected_output}</p>}
-        </Section>
+        {hasObjectContent(activity) && (
+          <Section title="نشاط صفي" tone="#7c3aed">
+            <h3 style={{ marginTop: 0 }}>{activity.title}</h3>
+            {activity.grouping && <p><strong>طريقة العمل: </strong>{activity.grouping}</p>}
+            <TextList items={activity.steps} />
+            {activity.expected_output && <p style={{ marginBottom: 0 }}><strong>الناتج المتوقع: </strong>{activity.expected_output}</p>}
+          </Section>
+        )}
 
-        <Section title="أقيم تعلمي" tone="#dc2626">
-          <TextList items={assessment.map(item => item.question)} />
-        </Section>
+        {hasItems(assessment) && (
+          <Section title="أقيم تعلمي" tone="#dc2626">
+            <TextList items={assessment.map(item => item.question)} />
+          </Section>
+        )}
 
-        <Section title={worksheet.title || 'ورقة عمل'} tone="#0891b2">
-          <p style={{ lineHeight: 1.8, marginTop: 0 }}>{worksheet.student_instructions}</p>
-          {worksheet.questions?.map((question, index) => (
-            <div key={`${question.prompt}-${index}`} style={{ borderTop: index ? '1px solid #e2e8f0' : 0, paddingTop: index ? '12px' : 0, marginTop: index ? '12px' : 0 }}>
-              <strong>{question.type}</strong>
-              <p style={{ lineHeight: 1.8, margin: '6px 0' }}>{question.prompt}</p>
-              {question.answer_space && <p style={{ color: '#64748b', margin: 0 }}>{question.answer_space}</p>}
-            </div>
-          ))}
-        </Section>
+        {hasObjectContent(worksheet) && (
+          <Section title={worksheet.title || 'ورقة عمل'} tone="#0891b2">
+            <p style={{ lineHeight: 1.8, marginTop: 0 }}>{worksheet.student_instructions}</p>
+            {worksheet.questions?.map((question, index) => (
+              <div key={`${question.prompt}-${index}`} style={{ borderTop: index ? '1px solid #e2e8f0' : 0, paddingTop: index ? '12px' : 0, marginTop: index ? '12px' : 0 }}>
+                <strong>{question.type}</strong>
+                <p style={{ lineHeight: 1.8, margin: '6px 0' }}>{question.prompt}</p>
+                {question.answer_space && <p style={{ color: '#64748b', margin: 0 }}>{question.answer_space}</p>}
+              </div>
+            ))}
+          </Section>
+        )}
 
-        <Section title="أسئلة لبنك الامتحان" tone="#9333ea">
-          {examBank.map((question) => (
-            <div key={question.id} style={{ borderBottom: '1px solid #e2e8f0', padding: '12px 0' }}>
-              <p style={{ margin: '0 0 8px', fontWeight: 'bold' }}>{question.type} | {question.difficulty}</p>
-              <p style={{ margin: '0 0 8px', lineHeight: 1.8 }}>{question.question}</p>
-              <TextList items={question.options} />
-              <p style={{ margin: '8px 0 0', color: '#15803d' }}><strong>الإجابة: </strong>{question.correct_answer}</p>
-            </div>
-          ))}
-        </Section>
+        {hasItems(examBank) && (
+          <Section title="أسئلة لبنك الامتحان" tone="#9333ea">
+            {examBank.map((question) => (
+              <div key={question.id} style={{ borderBottom: '1px solid #e2e8f0', padding: '12px 0' }}>
+                <p style={{ margin: '0 0 8px', fontWeight: 'bold' }}>{question.type} | {question.difficulty}</p>
+                <p style={{ margin: '0 0 8px', lineHeight: 1.8 }}>{question.question}</p>
+                <TextList items={question.options} />
+                <p style={{ margin: '8px 0 0', color: '#15803d' }}><strong>الإجابة: </strong>{question.correct_answer}</p>
+              </div>
+            ))}
+          </Section>
+        )}
 
-        <Section title="الإجابات النموذجية" tone="#15803d">
-          {Object.entries(answers).map(([groupTitle, groupAnswers]) => (
-            <div key={groupTitle} style={{ marginBottom: '14px' }}>
-              <h3 style={{ margin: '0 0 8px' }}>{groupTitle}</h3>
-              <TextList items={groupAnswers?.map(item => `${item.question_id || item.question}: ${item.answer}`)} />
-            </div>
-          ))}
-        </Section>
+        {hasObjectContent(answers) && (
+          <Section title="الإجابات النموذجية" tone="#15803d">
+            {Object.entries(answers).map(([groupTitle, groupAnswers]) => (
+              <div key={groupTitle} style={{ marginBottom: '14px' }}>
+                <h3 style={{ margin: '0 0 8px' }}>{groupTitle}</h3>
+                <TextList items={groupAnswers?.map(item => `${item.question_id || item.question}: ${item.answer}`)} />
+              </div>
+            ))}
+          </Section>
+        )}
 
-        <Section title="ملاحظات المعلم" tone="#475569">
-          <TextList items={teacherNotes} />
-        </Section>
+        {hasItems(teacherNotes) && (
+          <Section title="ملاحظات المعلم" tone="#475569">
+            <TextList items={teacherNotes} />
+          </Section>
+        )}
 
-        {resources?.length > 0 && (
+        {hasItems(resources) && (
           <Section title="روابط أو ملفات مساعدة" tone="#0e7490">
             <TextList items={resources.map(item => item.title || item.name || item.url || item)} />
           </Section>
